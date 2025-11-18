@@ -115,6 +115,28 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   }
 
   @override
+  Future<String> concatenateVideos({
+    required List<String> inputPaths,
+    required String outputPath,
+    String? taskId,
+  }) async {
+    final result = await methodChannel.invokeMethod<String>(
+      'concatenateVideos',
+      {
+        'id': taskId ?? 'concatenate_${DateTime.now().millisecondsSinceEpoch}',
+        'inputPaths': inputPaths,
+        'outputPath': outputPath,
+      },
+    );
+
+    if (result == null) {
+      throw ArgumentError('Failed to concatenate videos');
+    }
+
+    return result;
+  }
+
+  @override
   void initializeStream() {
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) return;
     _progressChannel.receiveBroadcastStream().map((event) {

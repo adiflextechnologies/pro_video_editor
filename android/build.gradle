@@ -18,6 +18,7 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven { url 'https://jitpack.io' }
     }
 }
 
@@ -57,6 +58,8 @@ android {
         implementation("androidx.media3:media3-transformer:$media3_version")
         implementation("androidx.media3:media3-effect:$media3_version")
         implementation("androidx.media3:media3-muxer:$media3_version")
+        
+        // FFmpeg handled by ffmpeg_kit_flutter_min plugin
         
         // Coroutines
         implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

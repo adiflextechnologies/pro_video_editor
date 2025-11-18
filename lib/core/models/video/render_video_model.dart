@@ -20,6 +20,12 @@ class RenderVideoModel {
     this.bitrate,
     this.colorMatrixList = const [],
     this.qualityConfig,
+    this.customAudioPath,
+    this.customAudioVolume = 1.0,
+    this.customAudioStartTime,
+    this.customAudioEndTime,
+    this.customAudioFadeInDuration = 0.0,
+    this.customAudioFadeOutDuration = 0.0,
     String? id,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
@@ -37,6 +43,18 @@ class RenderVideoModel {
         assert(
           bitrate == null || bitrate > 0,
           '[bitrate] must be greater than 0',
+        ),
+        assert(
+          customAudioVolume >= 0.0 && customAudioVolume <= 1.0,
+          '[customAudioVolume] must be between 0.0 and 1.0',
+        ),
+        assert(
+          customAudioFadeInDuration >= 0.0,
+          '[customAudioFadeInDuration] must be >= 0.0',
+        ),
+        assert(
+          customAudioFadeOutDuration >= 0.0,
+          '[customAudioFadeOutDuration] must be >= 0.0',
         );
 
   /// Creates a [RenderVideoModel] with a predefined quality preset.
@@ -70,6 +88,12 @@ class RenderVideoModel {
     double? blur,
     int? bitrateOverride,
     List<List<double>> colorMatrixList = const [],
+    String? customAudioPath,
+    double customAudioVolume = 1.0,
+    Duration? customAudioStartTime,
+    Duration? customAudioEndTime,
+    double customAudioFadeInDuration = 0.0,
+    double customAudioFadeOutDuration = 0.0,
     String? id,
   }) {
     final qualityConfig = VideoQualityConfig.fromPreset(qualityPreset);
@@ -88,6 +112,12 @@ class RenderVideoModel {
       bitrate: bitrateOverride ?? qualityConfig.bitrate,
       colorMatrixList: colorMatrixList,
       qualityConfig: qualityConfig,
+      customAudioPath: customAudioPath,
+      customAudioVolume: customAudioVolume,
+      customAudioStartTime: customAudioStartTime,
+      customAudioEndTime: customAudioEndTime,
+      customAudioFadeInDuration: customAudioFadeInDuration,
+      customAudioFadeOutDuration: customAudioFadeOutDuration,
     );
   }
 
@@ -154,6 +184,35 @@ class RenderVideoModel {
   /// applied bitrate.
   final int? bitrate;
 
+  /// Path to custom audio file to replace/mix with video audio.
+  ///
+  /// If provided, this audio will replace the original video audio.
+  /// Use [customAudioVolume], [customAudioStartTime], [customAudioEndTime],
+  /// [customAudioFadeInDuration], and [customAudioFadeOutDuration] to control
+  /// the audio properties.
+  final String? customAudioPath;
+
+  /// Volume level for custom audio (0.0 to 1.0).
+  ///
+  /// **Default**: `1.0` (100% volume)
+  final double customAudioVolume;
+
+  /// Optional start time for trimming custom audio.
+  final Duration? customAudioStartTime;
+
+  /// Optional end time for trimming custom audio.
+  final Duration? customAudioEndTime;
+
+  /// Fade in duration for custom audio in seconds.
+  ///
+  /// **Default**: `0.0` (no fade in)
+  final double customAudioFadeInDuration;
+
+  /// Fade out duration for custom audio in seconds.
+  ///
+  /// **Default**: `0.0` (no fade out)
+  final double customAudioFadeOutDuration;
+
   /// Returns a [Stream] of [ProgressModel] objects that provides updates on
   /// the progress of the video rendering process associated with this model's
   /// [id].
@@ -196,6 +255,12 @@ class RenderVideoModel {
       'bitrate': bitrate,
       'scaleX': scaleX,
       'scaleY': scaleY,
+      'customAudioPath': customAudioPath,
+      'customAudioVolume': customAudioVolume,
+      'customAudioStartTime': customAudioStartTime?.inMicroseconds,
+      'customAudioEndTime': customAudioEndTime?.inMicroseconds,
+      'customAudioFadeInDuration': customAudioFadeInDuration,
+      'customAudioFadeOutDuration': customAudioFadeOutDuration,
     };
   }
 
@@ -214,6 +279,12 @@ class RenderVideoModel {
     double? blur,
     int? bitrate,
     VideoQualityConfig? qualityConfig,
+    String? customAudioPath,
+    double? customAudioVolume,
+    Duration? customAudioStartTime,
+    Duration? customAudioEndTime,
+    double? customAudioFadeInDuration,
+    double? customAudioFadeOutDuration,
   }) {
     return RenderVideoModel(
       id: id ?? this.id,
@@ -229,6 +300,12 @@ class RenderVideoModel {
       blur: blur ?? this.blur,
       bitrate: bitrate ?? this.bitrate,
       qualityConfig: qualityConfig ?? this.qualityConfig,
+      customAudioPath: customAudioPath ?? this.customAudioPath,
+      customAudioVolume: customAudioVolume ?? this.customAudioVolume,
+      customAudioStartTime: customAudioStartTime ?? this.customAudioStartTime,
+      customAudioEndTime: customAudioEndTime ?? this.customAudioEndTime,
+      customAudioFadeInDuration: customAudioFadeInDuration ?? this.customAudioFadeInDuration,
+      customAudioFadeOutDuration: customAudioFadeOutDuration ?? this.customAudioFadeOutDuration,
     );
   }
 }

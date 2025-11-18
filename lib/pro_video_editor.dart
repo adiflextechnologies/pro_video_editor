@@ -10,6 +10,9 @@ export 'core/models/video/video_quality_config.dart';
 export 'pro_video_editor_platform_interface.dart';
 export 'shared/utils/converters.dart';
 
+/// Main API
+export 'pro_video_editor_method_channel.dart' show MethodChannelProVideoEditor;
+
 /// Thumbnails
 export 'core/models/thumbnail/key_frames_configs.model.dart';
 export 'core/models/thumbnail/thumbnail_box_fit.model.dart';

@@ -33,6 +33,7 @@ import applyRotation
 import applyScale
 import applyTrim
 import mapFormatToMimeType
+import ch.waio.pro_video_editor.src.features.render.helpers.AudioMixer
 import java.io.File
 
 @UnstableApi
@@ -59,6 +60,12 @@ class RenderVideo(private val context: Context) {
         endUs: Long? = null,
         colorMatrixList: List<List<Double>>,
         blur: Double?,
+        customAudioPath: String? = null,
+        customAudioVolume: Double = 1.0,
+        customAudioStartTime: Long? = null,
+        customAudioEndTime: Long? = null,
+        customAudioFadeInDuration: Long = 0L,
+        customAudioFadeOutDuration: Long = 0L,
         onProgress: (Double) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
@@ -73,6 +80,16 @@ class RenderVideo(private val context: Context) {
                     "video_output_${System.currentTimeMillis()}.$outputFormat"
                 )
             }
+
+        // If custom audio is provided, we need a two-step process:
+        // 1. Render video with Media3 (muted or without original audio)
+        // 2. Mix custom audio with FFmpeg
+        val needsCustomAudioMixing = customAudioPath != null && customAudioPath.isNotEmpty()
+        val intermediateFile = if (needsCustomAudioMixing) {
+            File(context.cacheDir, "video_intermediate_${System.currentTimeMillis()}.$outputFormat")
+        } else {
+            outputFile
+        }
 
         val videoEffects = mutableListOf<Effect>()
         val audioEffects = mutableListOf<AudioProcessor>()
@@ -101,7 +118,8 @@ class RenderVideo(private val context: Context) {
 
         val editedMediaItemBuilder = EditedMediaItem.Builder(mediaItem).setEffects(effects)
 
-        applyAudio(editedMediaItemBuilder, enableAudio)
+        // If custom audio will be applied, remove original audio during video rendering
+        applyAudio(editedMediaItemBuilder, if (needsCustomAudioMixing) false else enableAudio)
 
         var shouldStopPolling = false
         val outputMimeType = mapFormatToMimeType(outputFormat)
@@ -121,8 +139,37 @@ class RenderVideo(private val context: Context) {
             .setVideoMimeType(outputMimeType)
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, result: ExportResult) {
-                    shouldStopPolling = true;
+                    shouldStopPolling = true
                     try {
+                        // If custom audio needs to be mixed, use Android's MediaMuxer
+                        if (needsCustomAudioMixing && customAudioPath != null) {
+                            Log.d(RENDER_TAG, "Video rendering complete, mixing custom audio with MediaMuxer...")
+                            
+                            val audioMixer = AudioMixer(context)
+                            // Pass microsecond-based start/end times directly to AudioMixer
+                            // (RenderVideoModel provides customAudioStartTime/customAudioEndTime in microseconds)
+                            val audioMixSuccess = audioMixer.mixAudio(
+                                videoPath = intermediateFile.absolutePath,
+                                audioPath = customAudioPath,
+                                outputPath = outputFile.absolutePath,
+                                volume = customAudioVolume,
+                                audioStartUs = customAudioStartTime,
+                                audioEndUs = customAudioEndTime,
+                                fadeInMs = customAudioFadeInDuration,
+                                fadeOutMs = customAudioFadeOutDuration
+                            )
+                            
+                            // Clean up intermediate file
+                            intermediateFile.delete()
+                            
+                            if (!audioMixSuccess) {
+                                Log.w(RENDER_TAG, "Audio mixing failed, returning video without custom audio")
+                                // Copy intermediate to output as fallback
+                                intermediateFile.copyTo(outputFile, overwrite = true)
+                            }
+                        }
+                        
+                        // Return final result
                         if (outputPath != null) {
                             onComplete(null)
                         } else {
@@ -134,6 +181,9 @@ class RenderVideo(private val context: Context) {
                     } finally {
                         mainHandler.removeCallbacksAndMessages(null) // stop progress polling
                         if (outputPath == null) outputFile.delete()
+                        if (needsCustomAudioMixing && intermediateFile.exists()) {
+                            intermediateFile.delete()
+                        }
                     }
                 }
 
@@ -142,15 +192,18 @@ class RenderVideo(private val context: Context) {
                     result: ExportResult,
                     exception: ExportException
                 ) {
-                    shouldStopPolling = true;
+                    shouldStopPolling = true
                     onError(exception)
                     if (outputPath == null) outputFile.delete()
+                    if (needsCustomAudioMixing && intermediateFile.exists()) {
+                        intermediateFile.delete()
+                    }
                 }
             })
             .build()
 
         // Start transformation
-        transformer.start(editedMediaItem, outputFile.absolutePath)
+        transformer.start(editedMediaItem, intermediateFile.absolutePath)
 
         // Progress tracking setup
         val progressHolder = ProgressHolder()

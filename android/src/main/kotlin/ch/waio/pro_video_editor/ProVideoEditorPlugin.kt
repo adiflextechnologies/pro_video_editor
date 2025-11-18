@@ -3,6 +3,7 @@ package ch.waio.pro_video_editor
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import ch.waio.pro_video_editor.src.features.ConcatenateVideos
 import ch.waio.pro_video_editor.src.features.Metadata
 import ch.waio.pro_video_editor.src.features.render.RenderVideo
 import ch.waio.pro_video_editor.src.features.ThumbnailGenerator
@@ -22,6 +23,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var renderVideo: RenderVideo
     private lateinit var metadata: Metadata
     private lateinit var thumbnailGenerator: ThumbnailGenerator
+    private lateinit var concatenateVideos: ConcatenateVideos
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -44,6 +46,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         renderVideo = RenderVideo(flutterPluginBinding.applicationContext);
         metadata = Metadata(flutterPluginBinding.applicationContext)
         thumbnailGenerator = ThumbnailGenerator(flutterPluginBinding.applicationContext)
+        concatenateVideos = ConcatenateVideos(flutterPluginBinding.applicationContext)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -142,6 +145,14 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 val outputPath = call.argument<String>("outputPath")
                 val colorMatrixList = call.argument<List<List<Double>>>("colorMatrixList")
                     ?: emptyList<List<Double>>()
+                
+                // Custom audio parameters
+                val customAudioPath = call.argument<String?>("customAudioPath")
+                val customAudioVolume = call.argument<Number>("customAudioVolume")?.toDouble() ?: 1.0
+                val customAudioStartTime = call.argument<Number>("customAudioStartTime")?.toLong()
+                val customAudioEndTime = call.argument<Number>("customAudioEndTime")?.toLong()
+                val customAudioFadeInDuration = call.argument<Number>("customAudioFadeInDuration")?.toLong() ?: 0L
+                val customAudioFadeOutDuration = call.argument<Number>("customAudioFadeOutDuration")?.toLong() ?: 0L
 
                 postProgress(id, 0.0)
 
@@ -167,6 +178,12 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     colorMatrixList = colorMatrixList,
                     blur = blur,
                     bitrate = bitrate,
+                    customAudioPath = customAudioPath,
+                    customAudioVolume = customAudioVolume,
+                    customAudioStartTime = customAudioStartTime,
+                    customAudioEndTime = customAudioEndTime,
+                    customAudioFadeInDuration = customAudioFadeInDuration,
+                    customAudioFadeOutDuration = customAudioFadeOutDuration,
                     onProgress = { progress -> postProgress(id, progress) },
                     onComplete = { resultBytes ->
                         postProgress(id, 1.0)
@@ -178,6 +195,38 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                         Log.e("RenderVideo", "Error rendering video: ${error.message}")
                     }
                 )
+            }
+
+            "concatenateVideos" -> {
+                val id = call.argument<String>("id") ?: ""
+                val inputPaths = call.argument<List<String>>("inputPaths")
+                val outputPath = call.argument<String>("outputPath")
+
+                if (inputPaths == null || inputPaths.isEmpty() || outputPath == null) {
+                    result.error("INVALID_ARGUMENTS", "Missing or invalid arguments", null)
+                    return
+                }
+
+                postProgress(id, 0.0)
+
+                coroutineScope.launch {
+                    concatenateVideos.concatenate(
+                        inputPaths = inputPaths,
+                        outputPath = outputPath,
+                        onProgress = { progress -> postProgress(id, progress) },
+                        onComplete = { resultPath ->
+                            Handler(Looper.getMainLooper()).post {
+                                postProgress(id, 1.0)
+                                result.success(resultPath)
+                            }
+                        },
+                        onError = { error ->
+                            Handler(Looper.getMainLooper()).post {
+                                result.error("CONCATENATE_ERROR", error.message, null)
+                            }
+                        }
+                    )
+                }
             }
 
             else -> {

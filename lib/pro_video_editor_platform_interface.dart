@@ -86,6 +86,21 @@ abstract class ProVideoEditor extends PlatformInterface {
     throw UnimplementedError('renderVideoToFile() has not been implemented.');
   }
 
+  /// Concatenates multiple videos into a single video file.
+  /// 
+  /// [inputPaths] is a list of video file paths to concatenate.
+  /// [outputPath] is the output file path for the concatenated video.
+  /// [taskId] is an optional identifier to track progress.
+  /// 
+  /// Returns a [Future] containing the output file path.
+  Future<String> concatenateVideos({
+    required List<String> inputPaths,
+    required String outputPath,
+    String? taskId,
+  }) {
+    throw UnimplementedError('concatenateVideos() has not been implemented.');
+  }
+
   /// Stream of progress updates from native video tasks.
   ///
   /// Emits [ProgressModel] updates for all running or completed tasks. Each
