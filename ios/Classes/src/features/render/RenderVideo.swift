@@ -27,6 +27,12 @@ class RenderVideo {
         endUs: Int64?,
         colorMatrixList: [[Double]],
         blur: Double?,
+        customAudioPath: String?,
+        customAudioVolume: Double,
+        customAudioStartTime: Int64?,
+        customAudioEndTime: Int64?,
+        customAudioFadeInDuration: Int64,
+        customAudioFadeOutDuration: Int64,
         onProgress: @escaping (Double) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
@@ -71,8 +77,17 @@ class RenderVideo {
                     )
 
                     // Apply audio track
-                    await applyAudio(
-                        from: asset, to: composition, timeRange: timeRange, enableAudio: enableAudio
+                    let audioMix = await applyAudio(
+                        from: asset, 
+                        to: composition, 
+                        timeRange: timeRange, 
+                        enableAudio: enableAudio,
+                        customAudioPath: customAudioPath,
+                        customAudioVolume: customAudioVolume,
+                        customAudioStartTime: customAudioStartTime,
+                        customAudioEndTime: customAudioEndTime,
+                        customAudioFadeInDuration: customAudioFadeInDuration,
+                        customAudioFadeOutDuration: customAudioFadeOutDuration
                     )
                     applyPlaybackSpeed(composition: composition, speed: playbackSpeed)
 
@@ -149,6 +164,7 @@ class RenderVideo {
                     let export = try prepareExportSession(
                         composition: composition,
                         videoComposition: videoComposition,
+                        audioMix: audioMix,
                         outputURL: outputURL,
                         outputFormat: outputFormat,
                         preset: preset
@@ -298,6 +314,7 @@ class RenderVideo {
     private static func prepareExportSession(
         composition: AVAsset,
         videoComposition: AVVideoComposition,
+        audioMix: AVMutableAudioMix?,
         outputURL: URL,
         outputFormat: String,
         preset: String
@@ -310,6 +327,13 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
+        
+        // Apply audio mix if available
+        if let audioMix = audioMix {
+            export.audioMix = audioMix
+            print("[\(Tags.render)] ✅ Audio mix applied to export session")
+        }
+        
         return export
     }
 

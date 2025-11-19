@@ -109,6 +109,14 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       let startUs = args["startTime"] as? Int64
       let endUs = args["endTime"] as? Int64
       let colorMatrixList = args["colorMatrixList"] as? [[Double]] ?? []
+      
+      // Custom audio parameters
+      let customAudioPath = args["customAudioPath"] as? String
+      let customAudioVolume = (args["customAudioVolume"] as? NSNumber)?.doubleValue ?? 1.0
+      let customAudioStartTime = args["customAudioStartTime"] as? Int64
+      let customAudioEndTime = args["customAudioEndTime"] as? Int64
+      let customAudioFadeInDuration = args["customAudioFadeInDuration"] as? Int64 ?? 0
+      let customAudioFadeOutDuration = args["customAudioFadeOutDuration"] as? Int64 ?? 0
 
       postProgress(id: id, progress: 0.0)
 
@@ -134,6 +142,12 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         endUs: endUs,
         colorMatrixList: colorMatrixList,
         blur: blur,
+        customAudioPath: customAudioPath,
+        customAudioVolume: customAudioVolume,
+        customAudioStartTime: customAudioStartTime,
+        customAudioEndTime: customAudioEndTime,
+        customAudioFadeInDuration: customAudioFadeInDuration,
+        customAudioFadeOutDuration: customAudioFadeOutDuration,
         onProgress: { progress in
           self.postProgress(id: id, progress: progress)
         },
@@ -144,6 +158,36 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         onError: { error in
           result(
             FlutterError(code: "RENDER_ERROR", message: error.localizedDescription, details: nil))
+        }
+      )
+
+    case "concatenateVideos":
+      guard let args = call.arguments as? [String: Any],
+        let id = args["id"] as? String,
+        let inputPaths = args["inputPaths"] as? [String],
+        let outputPath = args["outputPath"] as? String
+      else {
+        result(
+          FlutterError(
+            code: "INVALID_ARGUMENTS", message: "Missing parameters for concatenateVideos", details: nil))
+        return
+      }
+      
+      postProgress(id: id, progress: 0.0)
+      
+      ConcatenateVideos.concatenate(
+        inputPaths: inputPaths,
+        outputPath: outputPath,
+        onProgress: { progress in
+          self.postProgress(id: id, progress: progress)
+        },
+        onComplete: { outputPath in
+          self.postProgress(id: id, progress: 1.0)
+          result(outputPath)
+        },
+        onError: { error in
+          result(
+            FlutterError(code: "CONCATENATE_ERROR", message: error.localizedDescription, details: nil))
         }
       )
 
