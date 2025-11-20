@@ -81,6 +81,19 @@ class RenderVideo(private val context: Context) {
         onError: (Throwable) -> Unit
     ) {
         val inputFile = File(inputPath)
+        if (!inputFile.exists()) {
+            Log.e(RENDER_TAG, \"Input video file does not exist: $inputPath\")
+            onError(IllegalArgumentException(\"Input video file not found: $inputPath\"))
+            return
+        }
+        
+        Log.d(RENDER_TAG, \"Starting video render - Input: $inputPath\")
+        Log.d(RENDER_TAG, \"  Output format: $outputFormat\")
+        Log.d(RENDER_TAG, \"  Enable audio: $enableAudio\")
+        Log.d(RENDER_TAG, \"  Custom audio: $customAudioPath\")
+        Log.d(RENDER_TAG, \"  Trim: $startUs to $endUs microseconds\")
+        Log.d(RENDER_TAG, \"  Image overlay: ${imageBytes?.size ?: 0} bytes\")
+        
         val outputFile =
             if (outputPath != null) {
                 File(outputPath)
@@ -155,6 +168,11 @@ class RenderVideo(private val context: Context) {
                         // If custom audio needs to be mixed, use Android's MediaMuxer
                         if (needsCustomAudioMixing && customAudioPath != null) {
                             Log.d(RENDER_TAG, "Video rendering complete, mixing custom audio with MediaMuxer...")
+                            Log.d(RENDER_TAG, "Video path: ${intermediateFile.absolutePath}")
+                            Log.d(RENDER_TAG, "Audio path: $customAudioPath")
+                            Log.d(RENDER_TAG, "Output path: ${outputFile.absolutePath}")
+                            Log.d(RENDER_TAG, "Audio volume: $customAudioVolume")
+                            Log.d(RENDER_TAG, "Audio trim: $customAudioStartTime to $customAudioEndTime")
                             
                             val audioMixer = AudioMixer(context)
                             // Pass microsecond-based start/end times directly to AudioMixer
@@ -170,18 +188,21 @@ class RenderVideo(private val context: Context) {
                                 fadeOutMs = customAudioFadeOutDuration
                             )
                             
-                            // Clean up intermediate file
-
-                    // Ensure we remove transformer from registry after completion
-                    runningTransformers.remove(id)
-                            intermediateFile.delete()
-                            
-                            if (!audioMixSuccess) {
+                            // Clean up intermediate file after successful mixing
+                            if (audioMixSuccess) {
+                                Log.d(RENDER_TAG, "Audio mixing successful, cleaning up intermediate file")
+                                intermediateFile.delete()
+                            } else {
                                 Log.w(RENDER_TAG, "Audio mixing failed, returning video without custom audio")
                                 // Copy intermediate to output as fallback
                                 intermediateFile.copyTo(outputFile, overwrite = true)
+                                intermediateFile.delete()
                             }
                         }
+                        
+                        // Remove transformer from registry after all processing is complete
+                        runningTransformers.remove(id)
+                        Log.d(RENDER_TAG, "Video generation complete, transformer removed from registry")
                         
                         // Return final result
                         if (outputPath != null) {
