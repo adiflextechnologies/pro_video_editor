@@ -4,8 +4,11 @@ import Foundation
 
 class RenderVideo {
     static let queue = DispatchQueue(label: "RenderVideoQueue")
+    // Map of active export sessions for ability to cancel from outside
+    static var exportSessions: [String: AVAssetExportSession] = [:]
 
     static func render(
+        id: String,
         inputPath: String,
         imageData: Data?,
         inputFormat: String,
@@ -169,8 +172,12 @@ class RenderVideo {
                         outputFormat: outputFormat,
                         preset: preset
                     )
+                    // Register session for cancellation
+                    exportSessions[id] = export
 
                     try await monitorExportProgress(export, onProgress: onProgress)
+                    // Remove registered session after monitoring completes
+                    exportSessions.removeValue(forKey: id)
 
                     if outputPath != nil {
                         handleCompletion(.success(nil))
@@ -386,5 +393,15 @@ class RenderVideo {
         for url in urls {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    // Cancel a running export session by id
+    static func cancel(id: String) -> Bool {
+        if let session = exportSessions[id] {
+            session.cancelExport()
+            exportSessions.removeValue(forKey: id)
+            return true
+        }
+        return false
     }
 }

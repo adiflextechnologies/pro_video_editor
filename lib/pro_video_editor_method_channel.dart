@@ -92,6 +92,17 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   }
 
   @override
+  Future<bool> cancelRender(String taskId) async {
+    try {
+      final result = await methodChannel.invokeMethod<bool>('cancelRender', {'id': taskId});
+      return result == true;
+    } catch (e) {
+      if (kDebugMode) debugPrint('cancelRender failed: $e');
+      return false;
+    }
+  }
+
+  @override
   Future<String> renderVideoToFile(
     String filePath,
     RenderVideoModel value,

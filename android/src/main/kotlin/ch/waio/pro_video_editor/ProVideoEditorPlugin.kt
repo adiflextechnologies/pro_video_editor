@@ -157,6 +157,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 postProgress(id, 0.0)
 
                 renderVideo.render(
+                    id = id,
                     imageBytes = imageBytes,
                     inputFormat = inputFormat,
                     outputFormat = outputFormat,
@@ -226,6 +227,16 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                             }
                         }
                     )
+                }
+            }
+
+            "cancelRender" -> {
+                val id = call.argument<String>("id") ?: ""
+                try {
+                    RenderVideo.cancelRender(id)
+                    result.success(true)
+                } catch (e: Exception) {
+                    result.error("CANCEL_ERROR", e.message, null)
                 }
             }
 

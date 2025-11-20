@@ -78,6 +78,11 @@ abstract class ProVideoEditor extends PlatformInterface {
     throw UnimplementedError('renderVideo() has not been implemented.');
   }
 
+  /// Cancels a running render with the given [taskId]. Returns true if cancelled.
+  Future<bool> cancelRender(String taskId) {
+    throw UnimplementedError('cancelRender() has not been implemented.');
+  }
+
   /// Renders a video to a file based on the provided [RenderVideoModel].
   Future<String> renderVideoToFile(
     String filePath,

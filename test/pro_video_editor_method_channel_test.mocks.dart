@@ -32,6 +32,7 @@ import 'package:pro_video_editor/pro_video_editor.dart' as _i4;
 // ignore_for_file: unnecessary_parenthesis
 // ignore_for_file: camel_case_types
 // ignore_for_file: subtype_of_sealed_class
+// ignore_for_file: invalid_use_of_internal_member
 
 class _FakeEditorVideo_0 extends _i1.SmartFake implements _i2.EditorVideo {
   _FakeEditorVideo_0(
@@ -109,19 +110,19 @@ class MockEditorVideo extends _i1.Mock implements _i2.EditorVideo {
       ) as _i2.EditorVideoType);
 
   @override
-  set byteArray(_i5.Uint8List? _byteArray) => super.noSuchMethod(
+  set byteArray(_i5.Uint8List? value) => super.noSuchMethod(
         Invocation.setter(
           #byteArray,
-          _byteArray,
+          value,
         ),
         returnValueForMissingStub: null,
       );
 
   @override
-  set file(_i6.File? _file) => super.noSuchMethod(
+  set file(_i6.File? value) => super.noSuchMethod(
         Invocation.setter(
           #file,
-          _file,
+          value,
         ),
         returnValueForMissingStub: null,
       );
@@ -367,6 +368,24 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
       ) as List<List<double>>);
 
   @override
+  double get customAudioVolume => (super.noSuchMethod(
+        Invocation.getter(#customAudioVolume),
+        returnValue: 0.0,
+      ) as double);
+
+  @override
+  double get customAudioFadeInDuration => (super.noSuchMethod(
+        Invocation.getter(#customAudioFadeInDuration),
+        returnValue: 0.0,
+      ) as double);
+
+  @override
+  double get customAudioFadeOutDuration => (super.noSuchMethod(
+        Invocation.getter(#customAudioFadeOutDuration),
+        returnValue: 0.0,
+      ) as double);
+
+  @override
   _i7.Stream<_i11.ProgressModel> get progressStream => (super.noSuchMethod(
         Invocation.getter(#progressStream),
         returnValue: _i7.Stream<_i11.ProgressModel>.empty(),
@@ -397,6 +416,12 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
     double? blur,
     int? bitrate,
     _i4.VideoQualityConfig? qualityConfig,
+    String? customAudioPath,
+    double? customAudioVolume,
+    Duration? customAudioStartTime,
+    Duration? customAudioEndTime,
+    double? customAudioFadeInDuration,
+    double? customAudioFadeOutDuration,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -416,6 +441,12 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
             #blur: blur,
             #bitrate: bitrate,
             #qualityConfig: qualityConfig,
+            #customAudioPath: customAudioPath,
+            #customAudioVolume: customAudioVolume,
+            #customAudioStartTime: customAudioStartTime,
+            #customAudioEndTime: customAudioEndTime,
+            #customAudioFadeInDuration: customAudioFadeInDuration,
+            #customAudioFadeOutDuration: customAudioFadeOutDuration,
           },
         ),
         returnValue: _FakeRenderVideoModel_2(
@@ -437,6 +468,12 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
               #blur: blur,
               #bitrate: bitrate,
               #qualityConfig: qualityConfig,
+              #customAudioPath: customAudioPath,
+              #customAudioVolume: customAudioVolume,
+              #customAudioStartTime: customAudioStartTime,
+              #customAudioEndTime: customAudioEndTime,
+              #customAudioFadeInDuration: customAudioFadeInDuration,
+              #customAudioFadeOutDuration: customAudioFadeOutDuration,
             },
           ),
         ),

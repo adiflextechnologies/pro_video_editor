@@ -38,7 +38,17 @@ import java.io.File
 
 @UnstableApi
 class RenderVideo(private val context: Context) {
+    companion object {
+        // Keep track of running transformers so they can be cancelled externally
+        val runningTransformers = java.util.concurrent.ConcurrentHashMap<String, Transformer>()
+
+        fun cancelRender(id: String) {
+            val transformer = runningTransformers.remove(id)
+            transformer?.cancel()
+        }
+    }
     fun render(
+        id: String,
         imageBytes: ByteArray?,
         inputFormat: String,
         outputFormat: String,
@@ -131,12 +141,13 @@ class RenderVideo(private val context: Context) {
 
         val mainHandler = Handler(Looper.getMainLooper())
 
-        // Declare it before so it's visible in the listener
-        lateinit var transformer: Transformer
-
-        transformer = Transformer.Builder(context)
+        // Build transformer with listeners
+        val transformerBuilder = Transformer.Builder(context)
             .setEncoderFactory(encoderFactoryBuilder.build())
             .setVideoMimeType(outputMimeType)
+
+        // Add listener and build
+        val transformer = transformerBuilder
             .addListener(object : Transformer.Listener {
                 override fun onCompleted(composition: Composition, result: ExportResult) {
                     shouldStopPolling = true
@@ -160,6 +171,9 @@ class RenderVideo(private val context: Context) {
                             )
                             
                             // Clean up intermediate file
+
+                    // Ensure we remove transformer from registry after completion
+                    runningTransformers.remove(id)
                             intermediateFile.delete()
                             
                             if (!audioMixSuccess) {
@@ -194,6 +208,8 @@ class RenderVideo(private val context: Context) {
                 ) {
                     shouldStopPolling = true
                     onError(exception)
+                    // Remove transformer registry on error
+                    runningTransformers.remove(id)
                     if (outputPath == null) outputFile.delete()
                     if (needsCustomAudioMixing && intermediateFile.exists()) {
                         intermediateFile.delete()
@@ -202,7 +218,8 @@ class RenderVideo(private val context: Context) {
             })
             .build()
 
-        // Start transformation
+        // Register transformer for cancellation and start transformation
+        runningTransformers[id] = transformer
         transformer.start(editedMediaItem, intermediateFile.absolutePath)
 
         // Progress tracking setup

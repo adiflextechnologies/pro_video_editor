@@ -121,6 +121,7 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       postProgress(id: id, progress: 0.0)
 
       RenderVideo.render(
+        id: id,
         inputPath: inputPath,
         imageData: imageBytes,
         inputFormat: inputFormat,
@@ -191,6 +192,14 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
       )
 
+    case "cancelRender":
+      guard let args = call.arguments as? [String: Any], let id = args["id"] as? String else {
+        result(FlutterError(code: "INVALID_ARGUMENTS", message: "Missing id", details: nil))
+        return
+      }
+      // Attempt to cancel and return result
+      let cancelled = RenderVideo.cancel(id: id)
+      result(cancelled)
     default:
       result(FlutterMethodNotImplemented)
     }
