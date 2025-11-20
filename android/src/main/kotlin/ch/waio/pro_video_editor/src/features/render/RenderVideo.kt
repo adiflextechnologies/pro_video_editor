@@ -82,17 +82,17 @@ class RenderVideo(private val context: Context) {
     ) {
         val inputFile = File(inputPath)
         if (!inputFile.exists()) {
-            Log.e(RENDER_TAG, \"Input video file does not exist: $inputPath\")
-            onError(IllegalArgumentException(\"Input video file not found: $inputPath\"))
+            Log.e(RENDER_TAG, "Input video file does not exist: $inputPath")
+            onError(IllegalArgumentException("Input video file not found: $inputPath"))
             return
         }
         
-        Log.d(RENDER_TAG, \"Starting video render - Input: $inputPath\")
-        Log.d(RENDER_TAG, \"  Output format: $outputFormat\")
-        Log.d(RENDER_TAG, \"  Enable audio: $enableAudio\")
-        Log.d(RENDER_TAG, \"  Custom audio: $customAudioPath\")
-        Log.d(RENDER_TAG, \"  Trim: $startUs to $endUs microseconds\")
-        Log.d(RENDER_TAG, \"  Image overlay: ${imageBytes?.size ?: 0} bytes\")
+        Log.d(RENDER_TAG, "Starting video render - Input: $inputPath")
+        Log.d(RENDER_TAG, "  Output format: $outputFormat")
+        Log.d(RENDER_TAG, "  Enable audio: $enableAudio")
+        Log.d(RENDER_TAG, "  Custom audio: $customAudioPath")
+        Log.d(RENDER_TAG, "  Trim: $startUs to $endUs microseconds")
+        Log.d(RENDER_TAG, "  Image overlay: ${imageBytes?.size ?: 0} bytes")
         
         val outputFile =
             if (outputPath != null) {
