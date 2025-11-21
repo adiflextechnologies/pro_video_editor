@@ -19,6 +19,11 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var methodChannel: MethodChannel
     private lateinit var eventChannel: EventChannel
     private var eventSink: EventChannel.EventSink? = null
+    // Buffer last known progress by id so we don't lose updates when sink reconnects
+    // Store both progress value and optional stage string so listeners can
+    // distinguish between rendering vs mixing and show appropriate UI.
+    private data class ProgressEntry(val progress: Double, val stage: String?)
+    private val lastProgress = java.util.concurrent.ConcurrentHashMap<String, ProgressEntry>()
 
     private lateinit var renderVideo: RenderVideo
     private lateinit var metadata: Metadata
@@ -36,9 +41,20 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 eventSink = events
+                Log.d(PACKAGE_TAG, "EventChannel onListen - sink set: ${eventSink != null}")
+                // Emit any buffered progress values to new listener
+                // We want to send the most recent progress for each task
+                lastProgress.forEach { (id, p) ->
+                    try {
+                        eventSink?.success(mapOf("id" to id, "progress" to p.progress, "stage" to p.stage))
+                    } catch (e: Exception) {
+                        Log.w(PACKAGE_TAG, "Failed to dispatch buffered progress for $id: ${e.message}")
+                    }
+                }
             }
 
             override fun onCancel(arguments: Any?) {
+                Log.d(PACKAGE_TAG, "EventChannel onCancel - sink cleared")
                 eventSink = null
             }
         })
@@ -185,7 +201,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     customAudioEndTime = customAudioEndTime,
                     customAudioFadeInDuration = customAudioFadeInDuration,
                     customAudioFadeOutDuration = customAudioFadeOutDuration,
-                    onProgress = { progress -> postProgress(id, progress) },
+                    onProgress = { progress, stage -> postProgress(id, progress, stage) },
                     onComplete = { resultBytes ->
                         postProgress(id, 1.0)
                         Handler(Looper.getMainLooper()).post {
@@ -234,6 +250,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 val id = call.argument<String>("id") ?: ""
                 try {
                     RenderVideo.cancelRender(id)
+                    lastProgress.remove(id)
                     result.success(true)
                 } catch (e: Exception) {
                     result.error("CANCEL_ERROR", e.message, null)
@@ -253,14 +270,22 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         coroutineScope.cancel()
     }
 
-    private fun postProgress(id: String, progress: Double) {
+    private fun postProgress(id: String, progress: Double, stage: String? = null) {
         Handler(Looper.getMainLooper()).post {
+            // remember last seen progress and stage
+            lastProgress[id] = ProgressEntry(progress, stage)
+            Log.d(PACKAGE_TAG, "postProgress($id) -> $progress (stage=${stage ?: "unknown"}), sink=${eventSink != null}")
             eventSink?.success(
                 mapOf(
                     "id" to id,
-                    "progress" to progress
+                    "progress" to progress,
+                    "stage" to stage
                 )
             )
+            // Remove buffer on completion to avoid stale events on new listeners
+            if (progress >= 1.0) {
+                lastProgress.remove(id)
+            }
         }
     }
 }

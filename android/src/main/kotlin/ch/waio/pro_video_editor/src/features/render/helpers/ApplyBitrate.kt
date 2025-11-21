@@ -1,3 +1,6 @@
+package ch.waio.pro_video_editor.src.features.render.helpers
+
+import ch.waio.pro_video_editor.RENDER_TAG
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.util.Log

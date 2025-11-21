@@ -1,6 +1,6 @@
 package ch.waio.pro_video_editor.src.features.render.helpers
 
-import RENDER_TAG
+import ch.waio.pro_video_editor.RENDER_TAG
 import android.content.Context
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
@@ -33,7 +33,8 @@ class AudioMixer(private val context: Context) {
         audioStartUs: Long? = null,
         audioEndUs: Long? = null,
         fadeInMs: Long = 0,
-        fadeOutMs: Long = 0
+        fadeOutMs: Long = 0,
+        onProgress: ((Double, String?) -> Unit)? = null
     ): Boolean {
         Log.d(RENDER_TAG, "=== Audio Mixing with MediaMuxer ===")
         Log.d(RENDER_TAG, "Video: $videoPath")
@@ -98,8 +99,19 @@ class AudioMixer(private val context: Context) {
                 // Copy video samples after muxer.start() below.
 
                 // Prepare encoder to transcode MP3->AAC and collect encoded samples into muxer
-                val success = transcodeMp3AndMux(audioExtractor, audioFormat, muxer, videoExtractor, muxerVideoTrack,
-                    volume.toFloat(), audioStartUs, audioEndUs, fadeInMs, fadeOutMs)
+                val success = transcodeMp3AndMux(
+                    audioExtractor,
+                    audioFormat,
+                    muxer,
+                    videoExtractor,
+                    muxerVideoTrack,
+                    volume.toFloat(),
+                    audioStartUs,
+                    audioEndUs,
+                    fadeInMs,
+                    fadeOutMs,
+                    { p, _ -> onProgress?.invoke(p, "mix") }
+                )
 
                 if (!success) {
                     Log.w(RENDER_TAG, "Audio mixing failed during transcode, returning video without custom audio")
@@ -110,13 +122,14 @@ class AudioMixer(private val context: Context) {
                 // Start muxing
                 muxer.start()
 
-                // Copy video track
+                // Copy video track (0-50% of total progress)
                 Log.d(RENDER_TAG, "Copying video track...")
-                copyTrack(videoExtractor, muxer, muxerVideoTrack)
+                copyTrackWithProgress(videoExtractor, muxer, muxerVideoTrack, 0.0, 0.5,
+                    { p -> onProgress?.invoke(p, "mix") })
 
-                // Copy audio track with volume adjustment
+                // Copy audio track with volume adjustment (50-100% of total progress)
                 Log.d(RENDER_TAG, "Copying audio track with volume: $volume")
-                copyAudioTrack(
+                copyAudioTrackWithProgress(
                     audioExtractor,
                     muxer,
                     muxerAudioTrack,
@@ -124,7 +137,10 @@ class AudioMixer(private val context: Context) {
                     audioStartUs,
                     audioEndUs,
                     fadeInMs,
-                    fadeOutMs
+                    fadeOutMs,
+                    0.5,
+                    1.0,
+                    { p -> onProgress?.invoke(p, "mix") }
                 )
             }
             
@@ -158,10 +174,38 @@ class AudioMixer(private val context: Context) {
     }
     
     private fun copyTrack(extractor: MediaExtractor, muxer: MediaMuxer, trackIndex: Int) {
+        copyTrackWithProgress(extractor, muxer, trackIndex, 0.0, 1.0, null)
+    }
+    
+    private fun copyTrackWithProgress(
+        extractor: MediaExtractor,
+        muxer: MediaMuxer,
+        trackIndex: Int,
+        progressStart: Double,
+        progressEnd: Double,
+        onProgress: ((Double) -> Unit)?
+    ) {
         val bufferInfo = MediaCodec.BufferInfo()
         val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB buffer
         
         extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+        // Report initial progress so UI updates immediately
+        if (onProgress != null) {
+            val clampedStart = progressStart.coerceIn(progressStart, progressEnd)
+            Log.d(RENDER_TAG, "Video track copy initial progress: ${(clampedStart * 100).toInt()}%")
+            onProgress(clampedStart)
+        }
+        
+        // Calculate total duration for progress tracking
+        val format = extractor.getTrackFormat(extractor.sampleTrackIndex)
+        val durationUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
+            format.getLong(MediaFormat.KEY_DURATION)
+        } else {
+            -1L
+        }
+        
+        var samplesProcessed = 0
+        val progressRange = progressEnd - progressStart
         
         while (true) {
             val sampleSize = extractor.readSampleData(buffer, 0)
@@ -174,6 +218,22 @@ class AudioMixer(private val context: Context) {
             
             muxer.writeSampleData(trackIndex, buffer, bufferInfo)
             extractor.advance()
+            
+            // Report progress every 10 samples
+            samplesProcessed++
+            if (onProgress != null && samplesProcessed % 10 == 0 && durationUs > 0) {
+                val currentProgress = bufferInfo.presentationTimeUs.toDouble() / durationUs
+                val overallProgress = progressStart + (currentProgress * progressRange)
+                val clampedProgress = overallProgress.coerceIn(progressStart, progressEnd)
+                Log.d(RENDER_TAG, "Video track copy progress: ${(clampedProgress * 100).toInt()}% (sample $samplesProcessed)")
+                onProgress(clampedProgress)
+            }
+        }
+        
+        // Ensure we report the end progress
+        if (onProgress != null) {
+            Log.d(RENDER_TAG, "Video track copy complete: ${(progressEnd * 100).toInt()}%")
+            onProgress(progressEnd)
         }
     }
     
@@ -187,16 +247,43 @@ class AudioMixer(private val context: Context) {
         fadeInMs: Long,
         fadeOutMs: Long
     ) {
+        copyAudioTrackWithProgress(extractor, muxer, trackIndex, volume, audioStartUs, audioEndUs, fadeInMs, fadeOutMs, 0.0, 1.0, null)
+    }
+    
+    private fun copyAudioTrackWithProgress(
+        extractor: MediaExtractor,
+        muxer: MediaMuxer,
+        trackIndex: Int,
+        volume: Float,
+        audioStartUs: Long?,
+        audioEndUs: Long?,
+        fadeInMs: Long,
+        fadeOutMs: Long,
+        progressStart: Double,
+        progressEnd: Double,
+        onProgress: ((Double) -> Unit)?
+    ) {
         val bufferInfo = MediaCodec.BufferInfo()
         val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB buffer
         
     // Seek to start position if specified. audioStartUs/audioEndUs are already in microseconds.
     val startUs = audioStartUs ?: 0L
+    // Report initial audio progress
+    if (onProgress != null) {
+        val clampedStart = progressStart.coerceIn(progressStart, progressEnd)
+        Log.d(RENDER_TAG, "Audio track copy initial progress: ${(clampedStart * 100).toInt()}%")
+        onProgress(clampedStart)
+    }
     extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
 
     val fadeInUs = fadeInMs * 1000
     val fadeOutUs = fadeOutMs * 1000
     val endUs = audioEndUs
+    
+        // Calculate duration for progress tracking
+        val audioDurationUs = (endUs ?: Long.MAX_VALUE) - startUs
+        var samplesProcessed = 0
+        val progressRange = progressEnd - progressStart
         
         while (true) {
             val sampleSize = extractor.readSampleData(buffer, 0)
@@ -227,6 +314,27 @@ class AudioMixer(private val context: Context) {
             
             muxer.writeSampleData(trackIndex, buffer, bufferInfo)
             extractor.advance()
+            
+            // Report progress every 10 samples
+            samplesProcessed++
+            if (onProgress != null && samplesProcessed % 10 == 0) {
+                val currentTimeUs = presentationTimeUs - startUs
+                val currentProgress = if (audioDurationUs > 0 && audioDurationUs != Long.MAX_VALUE) {
+                    currentTimeUs.toDouble() / audioDurationUs
+                } else {
+                    0.5 // Default mid-progress if duration unknown
+                }
+                val overallProgress = progressStart + (currentProgress * progressRange)
+                val clampedProgress = overallProgress.coerceIn(progressStart, progressEnd)
+                Log.d(RENDER_TAG, "Audio track copy progress: ${(clampedProgress * 100).toInt()}% (sample $samplesProcessed)")
+                onProgress(clampedProgress)
+            }
+        }
+        
+        // Ensure we report the end progress
+        if (onProgress != null) {
+            Log.d(RENDER_TAG, "Audio track copy complete: ${(progressEnd * 100).toInt()}%")
+            onProgress(progressEnd)
         }
     }
 
@@ -245,7 +353,8 @@ class AudioMixer(private val context: Context) {
         audioStartUs: Long?,
         audioEndUs: Long?,
         fadeInMs: Long,
-        fadeOutMs: Long
+        fadeOutMs: Long,
+        onProgress: ((Double, String?) -> Unit)?
     ): Boolean {
         try {
             val sampleRate = inputFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
@@ -281,6 +390,10 @@ class AudioMixer(private val context: Context) {
             var sawInputEOS = false
             var sawDecoderEOS = false
             var sawEncoderEOS = false
+            
+            // Progress tracking for transcoding
+            val audioDurationUs = (endUs ?: Long.MAX_VALUE) - startUs
+            var lastReportedProgress = 0.0
 
             // Loop until encoder signals EOS
             while (!sawEncoderEOS) {
@@ -368,9 +481,9 @@ class AudioMixer(private val context: Context) {
                                     // At this point video track was already added earlier; now start muxer
                                     muxer.start()
                                     muxerStarted = true
-                                    // Copy video samples before/after starting? We'll copy remaining video samples now.
+                                    // Copy video samples with progress tracking (0-50% of audio mixing)
                                     Log.d(RENDER_TAG, "Copying video track (post-muxer start)...")
-                                    copyTrack(videoExtractor, muxer, videoTrackIndexInMuxer)
+                                    copyTrackWithProgress(videoExtractor, muxer, videoTrackIndexInMuxer, 0.0, 0.5, { p -> onProgress?.invoke(p, "mix") })
                                 }
 
                                 val outBuf = ByteBuffer.allocate(bufferInfo.size)
@@ -380,6 +493,18 @@ class AudioMixer(private val context: Context) {
                                 outBuf.position(0)
 
                                 muxer.writeSampleData(muxerAudioTrack, outBuf, bufferInfo)
+                                
+                                // Report progress during transcoding (0.5-1.0 range for audio portion)
+                                if (onProgress != null && audioDurationUs > 0 && audioDurationUs != Long.MAX_VALUE) {
+                                    val currentTimeUs = bufferInfo.presentationTimeUs - startUs
+                                    val transcodingProgress = (currentTimeUs.toDouble() / audioDurationUs).coerceIn(0.0, 1.0)
+                                    val overallProgress = 0.5 + (transcodingProgress * 0.5) // Map to 50-100%
+                                    if (overallProgress - lastReportedProgress >= 0.01) { // Report every 1%
+                                        Log.d(RENDER_TAG, "MP3 transcode progress: ${(overallProgress * 100).toInt()}%")
+                                        onProgress?.invoke(overallProgress, "mix")
+                                        lastReportedProgress = overallProgress
+                                    }
+                                }
                             }
 
                             if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {

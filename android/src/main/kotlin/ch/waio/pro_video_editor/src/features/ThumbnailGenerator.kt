@@ -1,7 +1,7 @@
 package ch.waio.pro_video_editor.src.features
 
-import PACKAGE_TAG
-import THUMBNAIL_TAG
+import ch.waio.pro_video_editor.PACKAGE_TAG
+import ch.waio.pro_video_editor.THUMBNAIL_TAG
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaExtractor

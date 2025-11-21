@@ -1,4 +1,6 @@
-import RENDER_TAG
+package ch.waio.pro_video_editor.src.features.render.helpers
+
+import ch.waio.pro_video_editor.RENDER_TAG
 import android.content.Context
 import android.net.Uri
 import android.util.Log

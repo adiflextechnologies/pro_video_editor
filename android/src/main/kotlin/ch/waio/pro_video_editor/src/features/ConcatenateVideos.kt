@@ -1,6 +1,6 @@
 package ch.waio.pro_video_editor.src.features
 
-import PACKAGE_TAG
+import ch.waio.pro_video_editor.PACKAGE_TAG
 import android.content.Context
 import android.net.Uri
 import android.os.Handler

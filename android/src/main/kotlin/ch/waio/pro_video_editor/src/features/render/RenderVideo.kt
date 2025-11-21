@@ -1,13 +1,14 @@
 package ch.waio.pro_video_editor.src.features.render
 
-import PACKAGE_TAG
-import RENDER_TAG
+import ch.waio.pro_video_editor.PACKAGE_TAG
+import ch.waio.pro_video_editor.RENDER_TAG
 import android.content.Context
 import android.media.MediaCodecInfo
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
@@ -21,18 +22,18 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.VideoEncoderSettings
-import applyAudio
-import applyBitrate
-import applyBlur
-import applyColorMatrix
-import applyCrop
-import applyFlip
-import applyImageLayer
-import applyPlaybackSpeed
-import applyRotation
-import applyScale
-import applyTrim
-import mapFormatToMimeType
+import ch.waio.pro_video_editor.src.features.render.helpers.applyAudio
+import ch.waio.pro_video_editor.src.features.render.helpers.applyBitrate
+import ch.waio.pro_video_editor.src.features.render.helpers.applyBlur
+import ch.waio.pro_video_editor.src.features.render.helpers.applyColorMatrix
+import ch.waio.pro_video_editor.src.features.render.helpers.applyCrop
+import ch.waio.pro_video_editor.src.features.render.helpers.applyFlip
+import ch.waio.pro_video_editor.src.features.render.helpers.applyImageLayer
+import ch.waio.pro_video_editor.src.features.render.helpers.applyPlaybackSpeed
+import ch.waio.pro_video_editor.src.features.render.helpers.applyRotation
+import ch.waio.pro_video_editor.src.features.render.helpers.applyScale
+import ch.waio.pro_video_editor.src.features.render.helpers.applyTrim
+import ch.waio.pro_video_editor.src.features.render.utils.mapFormatToMimeType
 import ch.waio.pro_video_editor.src.features.render.helpers.AudioMixer
 import java.io.File
 
@@ -76,7 +77,7 @@ class RenderVideo(private val context: Context) {
         customAudioEndTime: Long? = null,
         customAudioFadeInDuration: Long = 0L,
         customAudioFadeOutDuration: Long = 0L,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
         onComplete: (ByteArray?) -> Unit,
         onError: (Throwable) -> Unit
     ) {
@@ -159,6 +160,8 @@ class RenderVideo(private val context: Context) {
             .setEncoderFactory(encoderFactoryBuilder.build())
             .setVideoMimeType(outputMimeType)
 
+        var mixingScheduled = false
+
         // Add listener and build
         val transformer = transformerBuilder
             .addListener(object : Transformer.Listener {
@@ -167,7 +170,7 @@ class RenderVideo(private val context: Context) {
                     try {
                         // If custom audio needs to be mixed, use Android's MediaMuxer
                         if (needsCustomAudioMixing && customAudioPath != null) {
-                            Log.d(RENDER_TAG, "Video rendering complete, mixing custom audio with MediaMuxer...")
+                            Log.d(RENDER_TAG, "Video rendering complete (0-70%), mixing custom audio with MediaMuxer (70-100%)...")
                             Log.d(RENDER_TAG, "Video path: ${intermediateFile.absolutePath}")
                             Log.d(RENDER_TAG, "Audio path: $customAudioPath")
                             Log.d(RENDER_TAG, "Output path: ${outputFile.absolutePath}")
@@ -177,47 +180,97 @@ class RenderVideo(private val context: Context) {
                             val audioMixer = AudioMixer(context)
                             // Pass microsecond-based start/end times directly to AudioMixer
                             // (RenderVideoModel provides customAudioStartTime/customAudioEndTime in microseconds)
-                            val audioMixSuccess = audioMixer.mixAudio(
-                                videoPath = intermediateFile.absolutePath,
-                                audioPath = customAudioPath,
-                                outputPath = outputFile.absolutePath,
-                                volume = customAudioVolume,
-                                audioStartUs = customAudioStartTime,
-                                audioEndUs = customAudioEndTime,
-                                fadeInMs = customAudioFadeInDuration,
-                                fadeOutMs = customAudioFadeOutDuration
-                            )
                             
-                            // Clean up intermediate file after successful mixing
-                            if (audioMixSuccess) {
-                                Log.d(RENDER_TAG, "Audio mixing successful, cleaning up intermediate file")
-                                intermediateFile.delete()
-                            } else {
-                                Log.w(RENDER_TAG, "Audio mixing failed, returning video without custom audio")
-                                // Copy intermediate to output as fallback
-                                intermediateFile.copyTo(outputFile, overwrite = true)
-                                intermediateFile.delete()
+                            // Verify intermediate file exists before starting background thread
+                            if (!intermediateFile.exists()) {
+                                Log.e(RENDER_TAG, "❌ Intermediate file does not exist: ${intermediateFile.absolutePath}")
+                                runningTransformers.remove(id)
+                                onError(Exception("Intermediate video file not found: ${intermediateFile.absolutePath}"))
+                                return
                             }
-                        }
-                        
-                        // Remove transformer from registry after all processing is complete
-                        runningTransformers.remove(id)
-                        Log.d(RENDER_TAG, "Video generation complete, transformer removed from registry")
-                        
-                        // Return final result
-                        if (outputPath != null) {
-                            onComplete(null)
+                            
+                            Log.d(RENDER_TAG, "✅ Intermediate file exists (${intermediateFile.length()} bytes), starting audio mixing on background thread")
+                            
+                            mixingScheduled = true
+                            // Ensure UI immediately shows audio mixing started (70%)
+                            mainHandler.post {
+                                // Notify listeners that audio mixing stage has started
+                                onProgress(0.7, "mix")
+                            }
+                            // Run audio mixing on background thread to avoid blocking main thread
+                            Executors.newSingleThreadExecutor().execute {
+                                try {
+                                    // Map audio mixing progress (0.0-1.0) to overall progress (0.7-1.0)
+                                    val audioMixSuccess = audioMixer.mixAudio(
+                                        videoPath = intermediateFile.absolutePath,
+                                        audioPath = customAudioPath,
+                                        outputPath = outputFile.absolutePath,
+                                        volume = customAudioVolume,
+                                        audioStartUs = customAudioStartTime,
+                                        audioEndUs = customAudioEndTime,
+                                        fadeInMs = customAudioFadeInDuration,
+                                        fadeOutMs = customAudioFadeOutDuration,
+                                        onProgress = { audioProgress, _ ->
+                                            // Map audio mixing progress (0.0-1.0) to overall 70-100%
+                                            val overallProgress = 0.7 + (audioProgress * 0.3)
+                                            Log.d(RENDER_TAG, "Audio mixing callback: audioProgress=$audioProgress -> overallProgress=$overallProgress")
+                                            // Post progress to main thread for EventChannel
+                                                mainHandler.post { onProgress(overallProgress, "mix") }
+                                        }
+                                    )
+                                    
+                                    // Clean up intermediate file after successful mixing
+                                    if (audioMixSuccess) {
+                                        Log.d(RENDER_TAG, "Audio mixing successful, cleaning up intermediate file")
+                                        intermediateFile.delete()
+                                    } else {
+                                        Log.w(RENDER_TAG, "Audio mixing failed, returning video without custom audio")
+                                        // Copy intermediate to output as fallback
+                                        intermediateFile.copyTo(outputFile, overwrite = true)
+                                        intermediateFile.delete()
+                                    }
+                                    
+                                    // Remove transformer from registry and return result on main thread
+                                    mainHandler.post {
+                                        runningTransformers.remove(id)
+                                        Log.d(RENDER_TAG, "Video generation complete, transformer removed from registry")
+                                        
+                                        // Return final result
+                                        if (outputPath != null) {
+                                            onComplete(null)
+                                        } else {
+                                            val resultBytes = outputFile.readBytes()
+                                            onComplete(resultBytes)
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    mainHandler.post {
+                                        onError(e)
+                                        runningTransformers.remove(id)
+                                        if (outputPath == null) outputFile.delete()
+                                        if (intermediateFile.exists()) intermediateFile.delete()
+                                    }
+                                }
+                            }
                         } else {
-                            val resultBytes = outputFile.readBytes()
-                            onComplete(resultBytes)
+                            // No audio mixing needed, return result immediately
+                            runningTransformers.remove(id)
+                            Log.d(RENDER_TAG, "Video generation complete, transformer removed from registry")
+                            
+                            // Return final result
+                            if (outputPath != null) {
+                                onComplete(null)
+                            } else {
+                                val resultBytes = outputFile.readBytes()
+                                onComplete(resultBytes)
+                            }
                         }
                     } catch (e: Exception) {
                         onError(e)
                     } finally {
                         mainHandler.removeCallbacksAndMessages(null) // stop progress polling
-                        if (outputPath == null) outputFile.delete()
-                        if (needsCustomAudioMixing && intermediateFile.exists()) {
-                            intermediateFile.delete()
+                        if (!mixingScheduled && outputPath == null) {
+                            outputFile.delete()
                         }
                     }
                 }
@@ -252,7 +305,10 @@ class RenderVideo(private val context: Context) {
 
                 val progressState = transformer.getProgress(progressHolder)
                 if (progressHolder.progress >= 0) {
-                    onProgress(progressHolder.progress / 100.0)
+                    // Map video rendering progress (0-100%) to overall 0-70%
+                    val videoProgress = progressHolder.progress / 100.0
+                    val overallProgress = videoProgress * 0.7
+                    onProgress(overallProgress, "render")
                 }
 
                 // Continue polling if transformer started

@@ -1,3 +1,6 @@
+package ch.waio.pro_video_editor.src.features.render.helpers
+
+import ch.waio.pro_video_editor.RENDER_TAG
 import android.util.Log
 import androidx.media3.common.Effect
 import androidx.media3.common.util.UnstableApi
