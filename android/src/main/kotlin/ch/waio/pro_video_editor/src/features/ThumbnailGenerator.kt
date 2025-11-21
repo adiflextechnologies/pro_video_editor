@@ -28,7 +28,7 @@ class ThumbnailGenerator(private val context: Context) {
         outputHeight: Int,
         timestampsUs: List<Long> = emptyList(),
         maxOutputFrames: Int? = 10,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
     ): List<ByteArray> = withContext(Dispatchers.IO) {
         when {
             timestampsUs.isNotEmpty() -> {
@@ -57,7 +57,7 @@ class ThumbnailGenerator(private val context: Context) {
         outputWidth: Int,
         outputHeight: Int,
         timestampsUs: List<Long>,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
     ): List<ByteArray> = withContext(Dispatchers.IO) {
         val tempVideoFile = File(inputPath)
         val thumbnails = MutableList<ByteArray?>(timestampsUs.size) { null }
@@ -95,7 +95,7 @@ class ThumbnailGenerator(private val context: Context) {
                 } finally {
                     retriever?.release()
                     val progress = completed.incrementAndGet().toDouble() / timestampsUs.size
-                    onProgress(progress)
+                    onProgress(progress, "thumbnail")
                 }
             }
         }
@@ -112,7 +112,7 @@ class ThumbnailGenerator(private val context: Context) {
         outputWidth: Int,
         outputHeight: Int,
         maxOutputFrames: Int = 10,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
     ): List<ByteArray> = withContext(Dispatchers.IO) {
         val tempVideoFile = File(inputPath)
         val keyframeTimestamps =
@@ -152,7 +152,7 @@ class ThumbnailGenerator(private val context: Context) {
                 } finally {
                     retriever?.release()
                     val progress = completed.incrementAndGet().toDouble() / keyframeTimestamps.size
-                    onProgress(progress)
+                    onProgress(progress, "thumbnail")
                 }
             }
         }

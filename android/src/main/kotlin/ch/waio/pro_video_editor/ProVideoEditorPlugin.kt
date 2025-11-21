@@ -122,7 +122,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                             outputHeight = outputHeight,
                             timestampsUs = timestampsUs,
                             maxOutputFrames = maxOutputFrames,
-                            onProgress = { progress -> postProgress(id, progress) },
+                                onProgress = { progress, stage -> postProgress(id, progress, stage) },
                         )
 
                         withContext(Dispatchers.Main) {
@@ -230,7 +230,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                     concatenateVideos.concatenate(
                         inputPaths = inputPaths,
                         outputPath = outputPath,
-                        onProgress = { progress -> postProgress(id, progress) },
+                            onProgress = { progress, stage -> postProgress(id, progress, stage) },
                         onComplete = { resultPath ->
                             Handler(Looper.getMainLooper()).post {
                                 postProgress(id, 1.0)

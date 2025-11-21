@@ -13,7 +13,7 @@ class ConcatenateVideos {
     static func concatenate(
         inputPaths: [String],
         outputPath: String,
-        onProgress: @escaping (Double) -> Void,
+        onProgress: @escaping (Double, String?) -> Void,
         onComplete: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
     ) {
@@ -33,7 +33,7 @@ class ConcatenateVideos {
                     let outputURL = URL(fileURLWithPath: outputPath)
                     try? FileManager.default.removeItem(at: outputURL)
                     try FileManager.default.copyItem(at: inputURL, to: outputURL)
-                    onProgress(1.0)
+                    onProgress(1.0, "concat")
                     onComplete(outputPath)
                     return
                 }
@@ -164,7 +164,7 @@ class ConcatenateVideos {
                     
                     // Report progress during composition building
                     let progress = Double(index + 1) / Double(inputPaths.count) * 0.3 // 30% for building composition
-                    onProgress(progress)
+                    onProgress(progress, "concat")
                 }
                 
                 print("[\(Tags.concatenate)] Total composition duration: \(CMTimeGetSeconds(composition.duration))s")
@@ -213,7 +213,7 @@ class ConcatenateVideos {
                     let exportProgress = Double(exportSession.progress)
                     // 30% was composition building, remaining 70% is export
                     let totalProgress = 0.3 + (exportProgress * 0.7)
-                    onProgress(totalProgress)
+                    onProgress(totalProgress, "concat")
                 }
                 
                 // Start export
@@ -230,7 +230,7 @@ class ConcatenateVideos {
                         print("[\(Tags.concatenate)]   Output size: \(outputFileSize / 1024)KB")
                     }
                     
-                    onProgress(1.0)
+                    onProgress(1.0, "concat")
                     onComplete(outputPath)
                     
                 case .failed:

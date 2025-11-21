@@ -125,4 +125,12 @@ void main() {
     expect(
         () async => await platform.renderVideo(mockModel), throwsArgumentError);
   });
+
+  test('ProgressModel.fromMap includes stage field when present', () async {
+    final map = { 'id': 'task1', 'progress': 0.5, 'stage': 'mix' };
+    final progress = ProgressModel.fromMap(map);
+    expect(progress.id, 'task1');
+    expect(progress.progress, 0.5);
+    expect(progress.stage, 'mix');
+  });
 }
