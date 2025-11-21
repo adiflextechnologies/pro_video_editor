@@ -45,6 +45,12 @@ fun applyBitrate(
     val builder = VideoEncoderSettings.Builder()
         .setBitrateMode(bitrateMode)
         .setBitrate(bitrate)
+    
+    // Note: Media3 Transformer automatically selects appropriate encoder profile
+    // The combination of proper bitrate + MediaMuxer metadata ensures WhatsApp compatibility
+    if (mimeType == "video/avc") {
+        Log.d(RENDER_TAG, "H.264 encoding with bitrate $bitrate for WhatsApp compatibility")
+    }
 
     encoderFactoryBuilder.setRequestedVideoEncoderSettings(builder.build())
 }

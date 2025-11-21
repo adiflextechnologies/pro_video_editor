@@ -65,6 +65,19 @@ class AudioMixer(private val context: Context) {
             }
             videoExtractor.selectTrack(videoTrackIndex)
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
+            
+            // Ensure video format has required metadata for WhatsApp compatibility
+            // WhatsApp requires proper SAR (Sample Aspect Ratio) and frame rate metadata
+            if (!videoFormat.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                Log.d(RENDER_TAG, "Adding default frame rate (30fps) for WhatsApp compatibility")
+                videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+            }
+            
+            // Ensure rotation is set to 0 if not present (some apps expect this)
+            if (!videoFormat.containsKey("rotation-degrees")) {
+                videoFormat.setInteger("rotation-degrees", 0)
+            }
+            
             val muxerVideoTrack = muxer.addTrack(videoFormat)
             
             // Add audio track. If audio mime is MP3 (audio/mpeg), we must transcode to AAC
