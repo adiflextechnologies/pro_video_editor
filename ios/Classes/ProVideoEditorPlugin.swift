@@ -124,6 +124,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
       postProgress(id: id, progress: 0.0)
 
+      let preferH264 = args["preferH264"] as? Bool ?? false
+
       RenderVideo.render(
         id: id,
         inputPath: inputPath,
@@ -153,6 +155,7 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         customAudioEndTime: customAudioEndTime,
         customAudioFadeInDuration: customAudioFadeInDuration,
         customAudioFadeOutDuration: customAudioFadeOutDuration,
+        preferH264: preferH264,
         onProgress: { progress, stage in
           self.postProgress(id: id, progress: progress, stage: stage)
         },

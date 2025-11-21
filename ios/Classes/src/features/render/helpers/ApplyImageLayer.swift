@@ -6,7 +6,10 @@ func applyImageLayer(
     imageData: Data?
 ) {
     config.overlayImage = imageData
-    guard imageData != nil else { return }
+    guard imageData != nil else {
+        print("[Render] No overlay image provided")
+        return
+    }
 
-    print("[Render] Applying overlay image")
+    print("[Render] Applying overlay image, size: \(imageData?.count ?? 0) bytes")
 }

@@ -36,6 +36,7 @@ class RenderVideo {
         customAudioEndTime: Int64?,
         customAudioFadeInDuration: Int64,
         customAudioFadeOutDuration: Int64,
+        preferH264: Bool = false,
         onProgress: @escaping (Double, String?) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
@@ -165,7 +166,11 @@ class RenderVideo {
                     // Use render size to pick an appropriate export preset to avoid unnecessary downscaling
                     let finalWidth = Int(videoComposition.renderSize.width)
                     let finalHeight = Int(videoComposition.renderSize.height)
-                    let preset = applyBitrate(requestedBitrate: bitrate, targetWidth: finalWidth, targetHeight: finalHeight)
+                    // Prefer H.264 exports for .mp4 targets to maximize compatibility
+                    let preferH264ByOutput = outputFormat.lowercased() == "mp4"
+                    let effectivePreferH264 = preferH264 || preferH264ByOutput
+                    let preset = applyBitrate(requestedBitrate: bitrate, targetWidth: finalWidth, targetHeight: finalHeight, presetHint: nil, preferH264: effectivePreferH264)
+                    print("[Render] Selected export preset: \(preset) (preferH264=\(effectivePreferH264))")
 
                     let export = try prepareExportSession(
                         composition: composition,
@@ -339,6 +344,7 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
+        print("[Render] Export session prepared - outputFileType: \(export.outputFileType?.rawValue ?? "unknown"), preset: \(preset), outputURL: \(outputURL.path)")
         
         // Apply audio mix if available
         if let audioMix = audioMix {

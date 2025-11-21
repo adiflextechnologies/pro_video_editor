@@ -63,9 +63,11 @@ class VideoCompositor: NSObject, AVVideoCompositing {
             let cgImage = uiImage.cgImage
         else {
             overlayImage = nil
+            print("[VideoCompositor] overlay image decode failed or nil")
             return
         }
         overlayImage = CIImage(cgImage: cgImage)
+        print("[VideoCompositor] overlay image set: \(cgImage.width)x\(cgImage.height)")
     }
 
     func clearLUT() {
