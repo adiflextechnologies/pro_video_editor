@@ -27,6 +27,7 @@ class RenderVideoModel {
     this.customAudioFadeInDuration = 0.0,
     this.customAudioFadeOutDuration = 0.0,
     String? id,
+    this.preferH264 = false,
   })  : id = id ?? DateTime.now().microsecondsSinceEpoch.toString(),
         assert(
           startTime == null || endTime == null || startTime < endTime,
@@ -183,6 +184,9 @@ class RenderVideoModel {
   /// bitrate, instant it will choose a preset which is the most near to the
   /// applied bitrate.
   final int? bitrate;
+  /// If true, prefer H.264 for exports (when applicable).
+  /// When not provided, plugin may choose the most appropriate codec.
+  final bool preferH264;
 
   /// Path to custom audio file to replace/mix with video audio.
   ///
@@ -261,6 +265,7 @@ class RenderVideoModel {
       'customAudioEndTime': customAudioEndTime?.inMicroseconds,
       'customAudioFadeInDuration': customAudioFadeInDuration,
       'customAudioFadeOutDuration': customAudioFadeOutDuration,
+      'preferH264': preferH264,
     };
   }
 
@@ -285,6 +290,7 @@ class RenderVideoModel {
     Duration? customAudioEndTime,
     double? customAudioFadeInDuration,
     double? customAudioFadeOutDuration,
+    bool? preferH264,
   }) {
     return RenderVideoModel(
       id: id ?? this.id,
@@ -306,6 +312,7 @@ class RenderVideoModel {
       customAudioEndTime: customAudioEndTime ?? this.customAudioEndTime,
       customAudioFadeInDuration: customAudioFadeInDuration ?? this.customAudioFadeInDuration,
       customAudioFadeOutDuration: customAudioFadeOutDuration ?? this.customAudioFadeOutDuration,
+      preferH264: preferH264 ?? this.preferH264,
     );
   }
 }

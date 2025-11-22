@@ -3,6 +3,8 @@ import Foundation
 
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
     private var eventSink: FlutterEventSink?
+    // Buffered last progress and stage per task
+    private var lastProgress: [String: (progress: Double, stage: String?)] = [:]
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let methodChannel = FlutterMethodChannel(
@@ -79,8 +81,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                     outputHeight: outputHeight,
                     timestampsUs: timestampsUs,
                     maxOutputFrames: maxOutputFrames,
-                    onProgress: { progress in
-                        self.postProgress(id: id, progress: progress)
+                    onProgress: { progress, stage in
+                        self.postProgress(id: id, progress: progress, stage: stage)
                     }
                 )
                 self.postProgress(id: id, progress: 1.0)
@@ -143,8 +145,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                 endUs: endUs,
                 colorMatrixList: colorMatrixList,
                 blur: blur,
-                onProgress: { progress in
-                    self.postProgress(id: id, progress: progress)
+                onProgress: { progress, stage in
+                    self.postProgress(id: id, progress: progress, stage: stage)
                 },
                 onComplete: { outputData in
                     self.postProgress(id: id, progress: 1.0)
@@ -163,12 +165,18 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
         }
     }
 
-    private func postProgress(id: String, progress: Double) {
+    private func postProgress(id: String, progress: Double, stage: String? = nil) {
         DispatchQueue.main.async {
+            // Buffer progress/stage
+            self.lastProgress[id] = (progress, stage)
             self.eventSink?([
                 "id": id,
                 "progress": progress,
+                "stage": stage as Any,
             ])
+            if (progress >= 1.0) {
+                self.lastProgress.removeValue(forKey: id)
+            }
         }
     }
 }
@@ -178,6 +186,14 @@ extension ProVideoEditorPlugin: FlutterStreamHandler {
         withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink
     ) -> FlutterError? {
         self.eventSink = events
+        // Re-emit buffered progress for any active tasks
+        for (id, p) in lastProgress {
+            self.eventSink?([
+                "id": id,
+                "progress": p.progress,
+                "stage": p.stage as Any,
+            ])
+        }
         return nil
     }
 

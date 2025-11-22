@@ -28,7 +28,7 @@ class RenderVideo {
         endUs: Int64?,
         colorMatrixList: [[Double]],
         blur: Double?,
-        onProgress: @escaping (Double) -> Void,
+        onProgress: @escaping (Double, String?) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
     ) {
@@ -315,7 +315,7 @@ class RenderVideo {
 
     private static func monitorExportProgress(
         _ export: AVAssetExportSession,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping (Double, String?) -> Void
     ) async throws {
         let updateInterval: TimeInterval = 0.2
         /*  if #available(macOS 15.0, *) {
@@ -339,9 +339,9 @@ class RenderVideo {
         let intervalNs = UInt64(updateInterval * 1_000_000_000)
         export.exportAsynchronously {}
         while export.status == .waiting || export.status == .exporting {
-            if export.status == .exporting {
+                if export.status == .exporting {
                 let normalizedProgress = min(max(export.progress, 0), 1.0)
-                onProgress(Double(normalizedProgress))
+                onProgress(Double(normalizedProgress), "render")
             }
             try await Task.sleep(nanoseconds: intervalNs)
         }

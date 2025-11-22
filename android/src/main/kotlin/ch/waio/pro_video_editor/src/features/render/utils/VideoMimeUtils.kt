@@ -1,3 +1,5 @@
+package ch.waio.pro_video_editor.src.features.render.utils
+
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 

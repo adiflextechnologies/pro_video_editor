@@ -12,7 +12,7 @@ class ThumbnailGenerator {
         outputHeight: Int,
         timestampsUs: [Int64],
         maxOutputFrames: Int? = 10,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping (Double, String?) -> Void
     ) async -> [Data] {
         let videoURL = URL(fileURLWithPath: inputPath)
         let asset = AVURLAsset(url: videoURL)
@@ -72,7 +72,7 @@ class ThumbnailGenerator {
                 }
 
                 completed += 1
-                onProgress(Double(completed) / Double(totalCount))
+                onProgress(Double(completed) / Double(totalCount), "thumbnail")
 
                 if completed == totalCount {
                     continuation.resume(returning: resultData.compactMap { $0 })

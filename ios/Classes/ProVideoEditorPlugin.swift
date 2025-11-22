@@ -3,6 +3,10 @@ import UIKit
 
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   var eventSink: FlutterEventSink?
+  // Buffer last known progress by id so that listeners that attach later can receive the most
+  // recent update instead of starting at 0.0.
+  // Store progress and optional stage for buffered events
+  var lastProgress: [String: (progress: Double, stage: String?)] = [:]
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let methodChannel = FlutterMethodChannel(
@@ -70,8 +74,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
           outputHeight: outputHeight,
           timestampsUs: timestampsUs,
           maxOutputFrames: maxOutputFrames,
-          onProgress: { progress in
-            self.postProgress(id: id, progress: progress)
+          onProgress: { progress, stage in
+            self.postProgress(id: id, progress: progress, stage: stage)
           }
         )
         self.postProgress(id: id, progress: 1.0)
@@ -120,6 +124,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
 
       postProgress(id: id, progress: 0.0)
 
+      let preferH264 = args["preferH264"] as? Bool ?? false
+
       RenderVideo.render(
         id: id,
         inputPath: inputPath,
@@ -149,8 +155,9 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         customAudioEndTime: customAudioEndTime,
         customAudioFadeInDuration: customAudioFadeInDuration,
         customAudioFadeOutDuration: customAudioFadeOutDuration,
-        onProgress: { progress in
-          self.postProgress(id: id, progress: progress)
+        preferH264: preferH264,
+        onProgress: { progress, stage in
+          self.postProgress(id: id, progress: progress, stage: stage)
         },
         onComplete: { outputData in
           self.postProgress(id: id, progress: 1.0)
@@ -179,8 +186,8 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       ConcatenateVideos.concatenate(
         inputPaths: inputPaths,
         outputPath: outputPath,
-        onProgress: { progress in
-          self.postProgress(id: id, progress: progress)
+        onProgress: { progress, stage in
+          self.postProgress(id: id, progress: progress, stage: stage)
         },
         onComplete: { outputPath in
           self.postProgress(id: id, progress: 1.0)
@@ -199,18 +206,27 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       }
       // Attempt to cancel and return result
       let cancelled = RenderVideo.cancel(id: id)
+      // Clear any buffered progress for this id to avoid stale events
+      lastProgress.removeValue(forKey: id)
       result(cancelled)
     default:
       result(FlutterMethodNotImplemented)
     }
   }
 
-  private func postProgress(id: String, progress: Double) {
+  private func postProgress(id: String, progress: Double, stage: String? = nil) {
     DispatchQueue.main.async {
+      // store buffered value
+      self.lastProgress[id] = (progress: progress, stage: stage)
+      print("ProVideoEditorPlugin.postProgress(\(id)) -> \(progress) sink=\(self.eventSink != nil)")
       self.eventSink?([
         "id": id,
         "progress": progress,
+        "stage": stage as Any,
       ])
+      if progress >= 1.0 {
+        self.lastProgress.removeValue(forKey: id)
+      }
     }
   }
 
@@ -218,10 +234,20 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
     withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink
   ) -> FlutterError? {
     self.eventSink = events
+    print("ProVideoEditorPlugin.onListen - sink set")
+    // Emit buffered progress values for all tasks so UI has a fast snapshot
+    for (id, p) in lastProgress {
+      self.eventSink?([
+        "id": id,
+        "progress": p.progress,
+        "stage": p.stage as Any,
+      ])
+    }
     return nil
   }
 
   @objc public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    print("ProVideoEditorPlugin.onCancel - sink cleared")
     self.eventSink = nil
     return nil
   }

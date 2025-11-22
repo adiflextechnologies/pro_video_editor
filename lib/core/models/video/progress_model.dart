@@ -6,6 +6,7 @@ class ProgressModel {
   const ProgressModel({
     required this.id,
     required this.progress,
+    this.stage,
   });
 
   /// Creates a [ProgressModel] from a map.
@@ -13,6 +14,7 @@ class ProgressModel {
     return ProgressModel(
       id: map['id'] ?? '',
       progress: safeParseDouble(map['progress']),
+      stage: map['stage'] as String?,
     );
   }
 
@@ -21,4 +23,6 @@ class ProgressModel {
 
   /// The progress value (0.0 to 1.0).
   final double progress;
+  /// Optional stage identifier like `render` or `mix` to help the UI present messages
+  final String? stage;
 }

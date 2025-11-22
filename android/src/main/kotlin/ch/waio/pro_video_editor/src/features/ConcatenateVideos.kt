@@ -1,6 +1,6 @@
 package ch.waio.pro_video_editor.src.features
 
-import PACKAGE_TAG
+import ch.waio.pro_video_editor.PACKAGE_TAG
 import android.content.Context
 import android.net.Uri
 import android.os.Handler
@@ -41,7 +41,7 @@ class ConcatenateVideos(private val context: Context) {
     fun concatenate(
         inputPaths: List<String>,
         outputPath: String,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
         onComplete: (String) -> Unit,
         onError: (Throwable) -> Unit
     ) {
@@ -61,7 +61,7 @@ class ConcatenateVideos(private val context: Context) {
     private fun concatenateOnMainThread(
         inputPaths: List<String>,
         outputPath: String,
-        onProgress: (Double) -> Unit,
+        onProgress: (Double, String?) -> Unit,
         onComplete: (String) -> Unit,
         onError: (Throwable) -> Unit
         , triedNormalization: Boolean = false,
@@ -76,7 +76,7 @@ class ConcatenateVideos(private val context: Context) {
             // If only one video, just copy it
             try {
                 File(inputPaths[0]).copyTo(File(outputPath), overwrite = true)
-                onProgress(1.0)
+                    onProgress(1.0, "concat")
                 onComplete(outputPath)
             } catch (e: Exception) {
                 onError(e)
@@ -180,7 +180,7 @@ class ConcatenateVideos(private val context: Context) {
                     override fun onCompleted(composition: Composition, result: ExportResult) {
                         Log.d(CONCATENATE_TAG, "✅ Concatenation completed successfully")
                         Log.d(CONCATENATE_TAG, "  Output size: ${outputFile.length() / 1024}KB")
-                        onProgress(1.0)
+                        onProgress(1.0, "concat")
                         onComplete(outputPath)
                     }
 
@@ -284,7 +284,7 @@ class ConcatenateVideos(private val context: Context) {
                         
                         if (progressHolder.progress >= 0) {
                             val progress = progressHolder.progress.toDouble() / 100.0
-                            onProgress(progress)
+                            onProgress(progress, "concat")
                             Log.d(CONCATENATE_TAG, "Progress: ${(progress * 100).toInt()}%")
                         }
 

@@ -36,7 +36,8 @@ class RenderVideo {
         customAudioEndTime: Int64?,
         customAudioFadeInDuration: Int64,
         customAudioFadeOutDuration: Int64,
-        onProgress: @escaping (Double) -> Void,
+        preferH264: Bool = false,
+        onProgress: @escaping (Double, String?) -> Void,
         onComplete: @escaping (Data?) -> Void,
         onError: @escaping (Error) -> Void
     ) {
@@ -162,7 +163,14 @@ class RenderVideo {
                     let compositorClass = makeVideoCompositorSubclass(with: config)
                     videoComposition.customVideoCompositorClass = compositorClass
 
-                    let preset = applyBitrate(requestedBitrate: bitrate)
+                    // Use render size to pick an appropriate export preset to avoid unnecessary downscaling
+                    let finalWidth = Int(videoComposition.renderSize.width)
+                    let finalHeight = Int(videoComposition.renderSize.height)
+                    // Prefer H.264 exports for .mp4 targets to maximize compatibility
+                    let preferH264ByOutput = outputFormat.lowercased() == "mp4"
+                    let effectivePreferH264 = preferH264 || preferH264ByOutput
+                    let preset = applyBitrate(requestedBitrate: bitrate, targetWidth: finalWidth, targetHeight: finalHeight, presetHint: nil, preferH264: effectivePreferH264)
+                    print("[Render] Selected export preset: \(preset) (preferH264=\(effectivePreferH264))")
 
                     let export = try prepareExportSession(
                         composition: composition,
@@ -172,6 +180,8 @@ class RenderVideo {
                         outputFormat: outputFormat,
                         preset: preset
                     )
+                    // Optimize for network use to improve compatibility with apps like WhatsApp (helps create stream-friendly MP4)
+                    export.shouldOptimizeForNetworkUse = true
                     // Register session for cancellation
                     exportSessions[id] = export
 
@@ -334,6 +344,7 @@ class RenderVideo {
         export.outputURL = outputURL
         export.outputFileType = mapFormatToMimeType(format: outputFormat)
         export.videoComposition = videoComposition
+        print("[Render] Export session prepared - outputFileType: \(export.outputFileType?.rawValue ?? "unknown"), preset: \(preset), outputURL: \(outputURL.path)")
         
         // Apply audio mix if available
         if let audioMix = audioMix {
@@ -346,7 +357,7 @@ class RenderVideo {
 
     private static func monitorExportProgress(
         _ export: AVAssetExportSession,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping (Double, String?) -> Void
     ) async throws {
         let updateInterval: TimeInterval = 0.2
         /*  if #available(macOS 15.0, *) {
@@ -357,8 +368,8 @@ class RenderVideo {
                      break
                  case .pending:
                      break
-                 case .exporting(let progress):
-                     onProgress(progress.fractionCompleted)
+                case .exporting(let progress):
+                    onProgress(progress.fractionCompleted, "render")
                  @unknown default:
                      throw NSError(
                          domain: "RenderVideo", code: 6,
@@ -370,9 +381,9 @@ class RenderVideo {
         let intervalNs = UInt64(updateInterval * 1_000_000_000)
         export.exportAsynchronously {}
         while export.status == .waiting || export.status == .exporting {
-            if export.status == .exporting {
+                if export.status == .exporting {
                 let normalizedProgress = min(max(export.progress, 0), 1.0)
-                onProgress(Double(normalizedProgress))
+                onProgress(Double(normalizedProgress), "render")
             }
             try await Task.sleep(nanoseconds: intervalNs)
         }
