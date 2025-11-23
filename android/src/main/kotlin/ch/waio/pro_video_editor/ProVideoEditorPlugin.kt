@@ -6,6 +6,7 @@ import android.util.Log
 import ch.waio.pro_video_editor.src.features.ConcatenateVideos
 import ch.waio.pro_video_editor.src.features.Metadata
 import ch.waio.pro_video_editor.src.features.render.RenderVideo
+import ch.waio.pro_video_editor.src.features.SlideshowGenerator
 import ch.waio.pro_video_editor.src.features.ThumbnailGenerator
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
@@ -29,6 +30,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var metadata: Metadata
     private lateinit var thumbnailGenerator: ThumbnailGenerator
     private lateinit var concatenateVideos: ConcatenateVideos
+    private lateinit var slideshowGenerator: SlideshowGenerator
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -63,6 +65,7 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
         metadata = Metadata(flutterPluginBinding.applicationContext)
         thumbnailGenerator = ThumbnailGenerator(flutterPluginBinding.applicationContext)
         concatenateVideos = ConcatenateVideos(flutterPluginBinding.applicationContext)
+        slideshowGenerator = SlideshowGenerator(flutterPluginBinding.applicationContext)
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
@@ -240,6 +243,58 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                         onError = { error ->
                             Handler(Looper.getMainLooper()).post {
                                 result.error("CONCATENATE_ERROR", error.message, null)
+                            }
+                        }
+                    )
+                }
+            }
+
+            "generateSlideshow" -> {
+                val id = call.argument<String>("id") ?: ""
+                val slidesData = call.argument<List<Map<String, Any>>>("slides")
+                val outputPath = call.argument<String>("outputPath")
+                val width = call.argument<Number>("width")?.toInt() ?: 1920
+                val height = call.argument<Number>("height")?.toInt() ?: 1080
+                val fps = call.argument<Number>("fps")?.toInt() ?: 30
+                val audioPath = call.argument<String?>("audioPath")
+
+                if (slidesData == null || slidesData.isEmpty() || outputPath == null) {
+                    result.error("INVALID_ARGUMENTS", "Missing or invalid arguments", null)
+                    return
+                }
+
+                // Parse slides data
+                val slides = slidesData.map { slideMap ->
+                    SlideshowGenerator.SlideConfig(
+                        imagePath = slideMap["imagePath"] as String,
+                        durationMs = (slideMap["durationMs"] as Number).toLong(),
+                        transitionInType = slideMap["transitionInType"] as? String ?: "fade",
+                        transitionOutType = slideMap["transitionOutType"] as? String ?: "fade",
+                        transitionInDurationMs = (slideMap["transitionInDurationMs"] as? Number)?.toLong() ?: 500,
+                        transitionOutDurationMs = (slideMap["transitionOutDurationMs"] as? Number)?.toLong() ?: 500
+                    )
+                }
+
+                postProgress(id, 0.0)
+
+                coroutineScope.launch {
+                    slideshowGenerator.generateSlideshow(
+                        slides = slides,
+                        outputPath = outputPath,
+                        width = width,
+                        height = height,
+                        fps = fps,
+                        audioPath = audioPath,
+                        onProgress = { progress, stage -> postProgress(id, progress, stage) },
+                        onComplete = { resultPath ->
+                            Handler(Looper.getMainLooper()).post {
+                                postProgress(id, 1.0)
+                                result.success(resultPath)
+                            }
+                        },
+                        onError = { error ->
+                            Handler(Looper.getMainLooper()).post {
+                                result.error("SLIDESHOW_ERROR", error.message, null)
                             }
                         }
                     )
