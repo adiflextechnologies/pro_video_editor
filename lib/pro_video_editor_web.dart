@@ -65,11 +65,38 @@ class ProVideoEditorWeb extends ProVideoEditor {
   }
 
   @override
+  Future<bool> cancelRender(String taskId) {
+    throw UnimplementedError('cancelRender() has not been implemented.');
+  }
+
+  @override
   Future<String> renderVideoToFile(
     String filePath,
     RenderVideoModel value,
   ) {
     throw UnimplementedError('renderVideoToFile() has not been implemented.');
+  }
+
+  @override
+  Future<String> concatenateVideos({
+    required List<String> inputPaths,
+    required String outputPath,
+    String? taskId,
+  }) {
+    throw UnimplementedError('concatenateVideos() has not been implemented for web.');
+  }
+
+  @override
+  Future<String> generateSlideshow({
+    required List<Map<String, dynamic>> slides,
+    required String outputPath,
+    int width = 1920,
+    int height = 1080,
+    int fps = 30,
+    String? audioPath,
+    String? taskId,
+  }) {
+    throw UnimplementedError('generateSlideshow() has not been implemented for web.');
   }
 
   @override

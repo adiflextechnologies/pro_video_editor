@@ -148,6 +148,36 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   }
 
   @override
+  Future<String> generateSlideshow({
+    required List<Map<String, dynamic>> slides,
+    required String outputPath,
+    int width = 1920,
+    int height = 1080,
+    int fps = 30,
+    String? audioPath,
+    String? taskId,
+  }) async {
+    final result = await methodChannel.invokeMethod<String>(
+      'generateSlideshow',
+      {
+        'id': taskId ?? 'slideshow_${DateTime.now().millisecondsSinceEpoch}',
+        'slides': slides,
+        'outputPath': outputPath,
+        'width': width,
+        'height': height,
+        'fps': fps,
+        'audioPath': audioPath,
+      },
+    );
+
+    if (result == null) {
+      throw ArgumentError('Failed to generate slideshow');
+    }
+
+    return result;
+  }
+
+  @override
   void initializeStream() {
     if (!kIsWeb && (Platform.isWindows || Platform.isLinux)) return;
     _progressChannel.receiveBroadcastStream().map((event) {

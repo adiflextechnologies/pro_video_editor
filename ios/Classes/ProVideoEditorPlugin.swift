@@ -199,6 +199,75 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         }
       )
 
+    case "generateSlideshow":
+      guard let args = call.arguments as? [String: Any],
+        let id = args["id"] as? String,
+        let slidesData = args["slides"] as? [[String: Any]],
+        let outputPath = args["outputPath"] as? String
+      else {
+        result(
+          FlutterError(
+            code: "INVALID_ARGUMENTS", message: "Missing parameters for generateSlideshow", details: nil))
+        return
+      }
+      
+      let width = args["width"] as? Int ?? 1920
+      let height = args["height"] as? Int ?? 1080
+      let fps = args["fps"] as? Int ?? 30
+      let audioPath = args["audioPath"] as? String
+      
+      // Parse slides data
+      let slides: [SlideshowGenerator.SlideConfig] = slidesData.compactMap { slideMap in
+        guard let imagePath = slideMap["imagePath"] as? String,
+              let durationMs = (slideMap["durationMs"] as? NSNumber)?.int64Value
+        else {
+          return nil
+        }
+        
+        let transitionInType = slideMap["transitionInType"] as? String ?? "fade"
+        let transitionOutType = slideMap["transitionOutType"] as? String ?? "fade"
+        let transitionInDurationMs = (slideMap["transitionInDurationMs"] as? NSNumber)?.int64Value ?? 500
+        let transitionOutDurationMs = (slideMap["transitionOutDurationMs"] as? NSNumber)?.int64Value ?? 500
+        
+        return SlideshowGenerator.SlideConfig(
+          imagePath: imagePath,
+          durationMs: durationMs,
+          transitionInType: transitionInType,
+          transitionOutType: transitionOutType,
+          transitionInDurationMs: transitionInDurationMs,
+          transitionOutDurationMs: transitionOutDurationMs
+        )
+      }
+      
+      guard !slides.isEmpty else {
+        result(
+          FlutterError(
+            code: "INVALID_ARGUMENTS", message: "No valid slides provided", details: nil))
+        return
+      }
+      
+      postProgress(id: id, progress: 0.0)
+      
+      SlideshowGenerator.generateSlideshow(
+        slides: slides,
+        outputPath: outputPath,
+        width: width,
+        height: height,
+        fps: fps,
+        audioPath: audioPath,
+        onProgress: { progress, stage in
+          self.postProgress(id: id, progress: progress, stage: stage)
+        },
+        onComplete: { resultPath in
+          self.postProgress(id: id, progress: 1.0)
+          result(resultPath)
+        },
+        onError: { error in
+          result(
+            FlutterError(code: "SLIDESHOW_ERROR", message: error.localizedDescription, details: nil))
+        }
+      )
+
     case "cancelRender":
       guard let args = call.arguments as? [String: Any], let id = args["id"] as? String else {
         result(FlutterError(code: "INVALID_ARGUMENTS", message: "Missing id", details: nil))

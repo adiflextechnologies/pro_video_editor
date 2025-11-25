@@ -368,6 +368,12 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
       ) as List<List<double>>);
 
   @override
+  bool get preferH264 => (super.noSuchMethod(
+        Invocation.getter(#preferH264),
+        returnValue: false,
+      ) as bool);
+
+  @override
   double get customAudioVolume => (super.noSuchMethod(
         Invocation.getter(#customAudioVolume),
         returnValue: 0.0,
@@ -422,6 +428,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
     Duration? customAudioEndTime,
     double? customAudioFadeInDuration,
     double? customAudioFadeOutDuration,
+    bool? preferH264,
   }) =>
       (super.noSuchMethod(
         Invocation.method(
@@ -447,6 +454,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
             #customAudioEndTime: customAudioEndTime,
             #customAudioFadeInDuration: customAudioFadeInDuration,
             #customAudioFadeOutDuration: customAudioFadeOutDuration,
+            #preferH264: preferH264,
           },
         ),
         returnValue: _FakeRenderVideoModel_2(
@@ -474,6 +482,7 @@ class MockRenderVideoModel extends _i1.Mock implements _i4.RenderVideoModel {
               #customAudioEndTime: customAudioEndTime,
               #customAudioFadeInDuration: customAudioFadeInDuration,
               #customAudioFadeOutDuration: customAudioFadeOutDuration,
+              #preferH264: preferH264,
             },
           ),
         ),
