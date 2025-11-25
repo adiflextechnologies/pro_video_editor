@@ -10,13 +10,16 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.util.Log
+import android.view.Surface
 import java.io.File
 import java.nio.ByteBuffer
+import ch.waio.pro_video_editor.src.features.render.helpers.AudioMixer
 import kotlin.math.max
 
 private const val SLIDESHOW_TAG = "${PACKAGE_TAG}:SlideshowGenerator"
@@ -155,16 +158,78 @@ class SlideshowGenerator(private val context: Context) {
         try {
             // Configure video encoder
             val mime = MediaFormat.MIMETYPE_VIDEO_AVC
-            val format = MediaFormat.createVideoFormat(mime, width, height).apply {
-                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
-                setInteger(MediaFormat.KEY_BIT_RATE, 8_000_000) // 8 Mbps
-                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            val format = MediaFormat.createVideoFormat(mime, width, height)
+
+            // Choose a color format supported by the device for byte-buffer input.
+            val supportedColorFormat = selectSupportedColorFormat(mime)
+            if (supportedColorFormat != null) {
+                format.setInteger(MediaFormat.KEY_COLOR_FORMAT, supportedColorFormat)
+                Log.d(SLIDESHOW_TAG, "Using color format $supportedColorFormat for mime $mime")
+            } else {
+                // Fallback to surface-based encoding if no suitable ByteBuffer YUV format found.
+                format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                Log.w(SLIDESHOW_TAG, "No supported YUV byte-buffer format found; falling back to COLOR_FormatSurface (Surface input)")
             }
+            format.setInteger(MediaFormat.KEY_BIT_RATE, 8_000_000) // 8 Mbps
+            format.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+            format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             
-            encoder = MediaCodec.createEncoderByType(mime)
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            encoder.start()
+            // Try to configure encoder with chosen color format, but robustly fall back
+            var configured = false
+            // Create candidate list: prefer discovered formats, then fallbacks
+            val candidateFormats = mutableListOf<Int?>()
+            candidateFormats.add(supportedColorFormat)
+            // Additional fallbacks: semi-planar, planar, flexible and then Surface
+            // Additional fallbacks
+            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
+            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar)
+            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+
+            for (candidate in candidateFormats) {
+                var encoderCandidate: MediaCodec? = null
+                try {
+                    encoderCandidate = MediaCodec.createEncoderByType(mime)
+                    if (candidate != null) {
+                        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, candidate)
+                    }
+                    encoderCandidate.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                    encoder = encoderCandidate
+                    configured = true
+                    Log.d(SLIDESHOW_TAG, "MediaCodec configured with color format: $candidate")
+                    break
+                } catch (e: Exception) {
+                    Log.w(SLIDESHOW_TAG, "Failed to configure color format $candidate: ${e.message}")
+                    try {
+                        encoderCandidate?.release()
+                    } catch (_: Exception) {}
+                    // Try next candidate
+                }
+            }
+
+            if (!configured) {
+                throw IllegalStateException("Unable to configure MediaCodec with any tested color formats")
+            }
+
+            val enc = encoder!!
+            enc.start()
+
+            // Determine whether encoder expects Surface input
+            var configuredColorFormat: Int? = null
+            try {
+                configuredColorFormat = format.getInteger(MediaFormat.KEY_COLOR_FORMAT)
+            } catch (_: Exception) {}
+            val usingSurface = configuredColorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+            var inputSurface: Surface? = null
+            if (usingSurface) {
+                try {
+                    inputSurface = enc.createInputSurface()
+                    Log.d(SLIDESHOW_TAG, "Encoder uses input Surface; created inputSurface")
+                } catch (e: Exception) {
+                    Log.w(SLIDESHOW_TAG, "Failed to create input surface: ${e.message}")
+                    inputSurface = null
+                }
+            }
             
             // Create muxer
             muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
@@ -181,13 +246,102 @@ class SlideshowGenerator(private val context: Context) {
             var currentFrameIndex = 0
             var muxerStarted = false
             var inputEOS = false
+            var chosenColorFormat = supportedColorFormat
             
             // Process each frame
             while (currentFrameIndex < totalFrames || !inputEOS) {
                 // Feed input frames
                 if (!inputEOS && currentFrameIndex < totalFrames) {
-                    val inputBufferIndex = encoder.dequeueInputBuffer(10_000)
-                    if (inputBufferIndex >= 0) {
+                    // Determine which slide this frame belongs to
+                    val (slideIndex, frameProgress, slideStartFrame) = getSlideForFrame(
+                            frameIndex = currentFrameIndex,
+                            slides = slides,
+                            fps = fps
+                        )
+                        
+                        // Get the image for this frame
+                        val image = loadedImages[slideIndex]
+
+                        // Compute slide total duration for this slide
+                        val slideTotalDurationMs = slides[slideIndex].durationMs + slides[slideIndex].transitionInDurationMs + slides[slideIndex].transitionOutDurationMs
+
+                        // Apply transition effect
+                        val alpha = calculateTransitionAlpha(
+                            frameProgress = frameProgress,
+                            transitionIn = slides[slideIndex].transitionInType,
+                            transitionOut = slides[slideIndex].transitionOutType,
+                            transitionInDurationMs = slides[slideIndex].transitionInDurationMs,
+                            transitionOutDurationMs = slides[slideIndex].transitionOutDurationMs,
+                            slideTotalDurationMs = slideTotalDurationMs
+                        )
+
+                        val (tx, ty, scale) = calculateTransform(
+                            frameProgress = frameProgress,
+                            transitionIn = slides[slideIndex].transitionInType,
+                            transitionOut = slides[slideIndex].transitionOutType,
+                            transitionInDurationMs = slides[slideIndex].transitionInDurationMs,
+                            transitionOutDurationMs = slides[slideIndex].transitionOutDurationMs,
+                            slideTotalDurationMs = slideTotalDurationMs,
+                            width = width,
+                            height = height
+                        )
+
+                        // Compute finalBitmap (including crossfade) for both paths
+                        var finalBitmap: Bitmap = image
+                        var composited: Bitmap? = null
+                        val currSlide = slides[slideIndex]
+                        val inFraction = if ( (currSlide.durationMs + currSlide.transitionInDurationMs + currSlide.transitionOutDurationMs) > 0 ) currSlide.transitionInDurationMs.toFloat() / (currSlide.durationMs + currSlide.transitionInDurationMs + currSlide.transitionOutDurationMs).toFloat() else 0f
+                        if (frameProgress < inFraction && slideIndex > 0) {
+                            val prevIndex = slideIndex - 1
+                            val prevSlide = slides[prevIndex]
+                            // Check if either side wants a crossfade effect
+                            if (currSlide.transitionInType == "crossfade" || prevSlide.transitionOutType == "crossfade") {
+                                val prevSlideStartFrame = slideStartFrame - ((prevSlide.durationMs + prevSlide.transitionInDurationMs + prevSlide.transitionOutDurationMs) * fps / 1000).toInt()
+                                val prevSlideFrames = ((prevSlide.durationMs + prevSlide.transitionInDurationMs + prevSlide.transitionOutDurationMs) * fps / 1000).toInt()
+                                val prevFrameIndex = currentFrameIndex - prevSlideStartFrame
+                                val prevProgress = prevFrameIndex.toFloat() / prevSlideFrames
+                                val prevSlideTotalMs = prevSlide.durationMs + prevSlide.transitionInDurationMs + prevSlide.transitionOutDurationMs
+                                val prevAlpha = calculateTransitionAlpha(prevProgress, prevSlide.transitionInType, prevSlide.transitionOutType, prevSlide.transitionInDurationMs, prevSlide.transitionOutDurationMs, prevSlideTotalMs)
+                                val prevTransform = calculateTransform(prevProgress, prevSlide.transitionInType, prevSlide.transitionOutType, prevSlide.transitionInDurationMs, prevSlide.transitionOutDurationMs, prevSlideTotalMs, width, height)
+                                val prevBitmap = loadedImages[prevIndex]
+                                val transformedPrev = transformBitmap(prevBitmap, prevTransform.first, prevTransform.second, prevTransform.third, width, height)
+                                val transformedCurr = transformBitmap(image, tx, ty, scale, width, height)
+                                composited = composeBitmaps(transformedPrev, prevAlpha, transformedCurr, alpha, width, height)
+                                // Recycle temp bitmaps after compositing
+                                transformedPrev.recycle()
+                                transformedCurr.recycle()
+                                finalBitmap = composited
+                            } else {
+                                // No crossfade; just use transformed
+                                finalBitmap = transformBitmap(image, tx, ty, scale, width, height)
+                            }
+                        } else {
+                            // Not in crossfade window
+                            finalBitmap = transformBitmap(image, tx, ty, scale, width, height)
+                        }
+
+                    if (usingSurface && inputSurface != null) {
+                        // Draw on inputSurface using Canvas
+                        try {
+                            val canvas = inputSurface.lockCanvas(null)
+                            // Draw the finalBitmap centered or covering the canvas
+                            val srcRect = android.graphics.Rect(0, 0, finalBitmap.width, finalBitmap.height)
+                            val dstRect = android.graphics.Rect(0, 0, width, height)
+                            canvas.drawBitmap(finalBitmap, srcRect, dstRect, Paint(Paint.FILTER_BITMAP_FLAG))
+                            inputSurface.unlockCanvasAndPost(canvas)
+                        } catch (e: Exception) {
+                            Log.w(SLIDESHOW_TAG, "Failed to render frame to surface: ${e.message}")
+                        }
+                        currentFrameIndex++
+                        // Periodic progress reporting
+                        if (currentFrameIndex % (fps * 2) == 0) {
+                            val progress = currentFrameIndex.toDouble() / totalFrames
+                            onProgress(progress)
+                            Log.d(SLIDESHOW_TAG, "  Surface encoding progress: ${(progress * 100).toInt()}%")
+                        }
+                    } else {
+                        val inputBufferIndex = enc.dequeueInputBuffer(10_000)
+                        if (inputBufferIndex >= 0) {
                                     // Determine which slide this frame belongs to
                                     val (slideIndex, frameProgress, slideStartFrame) = getSlideForFrame(
                             frameIndex = currentFrameIndex,
@@ -202,7 +356,7 @@ class SlideshowGenerator(private val context: Context) {
                         val slideTotalDurationMs = slides[slideIndex].durationMs + slides[slideIndex].transitionInDurationMs + slides[slideIndex].transitionOutDurationMs
 
                         // Convert bitmap to YUV420 and feed to encoder
-                        val inputBuffer = encoder.getInputBuffer(inputBufferIndex)
+                        val inputBuffer = enc.getInputBuffer(inputBufferIndex)
                         if (inputBuffer != null) {
                             inputBuffer.clear()
                             
@@ -266,13 +420,31 @@ class SlideshowGenerator(private val context: Context) {
                             }
 
                             // Convert bitmap to YUV with alpha
-                            val yuvData = bitmapToYUV420(finalBitmap, width, height, 1.0f)
+                            var yuvData = bitmapToYUV420(finalBitmap, width, height, 1.0f)
+                            // After configure succeeded, read the active color format from the configured format
+                            try {
+                                chosenColorFormat = format.getInteger(MediaFormat.KEY_COLOR_FORMAT)
+                            } catch (_: Exception) {}
+
+                            // Convert if encoder expects planar or semi-planar YUV layout
+                            if (chosenColorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar) {
+                                yuvData = convertNV12ToPlanar(yuvData, width, height)
+                            } else if (chosenColorFormat == MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar) {
+                                // Some encoders expect NV21 order for semi-planar (V then U) while our conversion produces NV12 (U then V).
+                                // Convert NV12 -> NV21 to satisfy encoders that expect VU ordering.
+                                yuvData = convertNV12ToNV21(yuvData, width, height)
+                            }
+                            // (encoder.outputFormat isn't available until format changed; rely on the chosenColorFormat)
                             // Recycle the temporary final bitmap if we created a composite
                             if (composited != null) composited.recycle() else finalBitmap.recycle()
-                            inputBuffer.put(yuvData)
+                            if (inputBuffer.capacity() >= yuvData.size) {
+                                inputBuffer.put(yuvData)
+                            } else {
+                                Log.w(SLIDESHOW_TAG, "Input buffer too small (${inputBuffer.capacity()}) for YUV data (${yuvData.size}), skipping frame")
+                            }
                             
                             val presentationTimeUs = currentFrameIndex * frameDurationUs
-                            encoder.queueInputBuffer(
+                            enc.queueInputBuffer(
                                 inputBufferIndex,
                                 0,
                                 yuvData.size,
@@ -289,38 +461,49 @@ class SlideshowGenerator(private val context: Context) {
                                 Log.d(SLIDESHOW_TAG, "  Encoding progress: ${(progress * 100).toInt()}%")
                             }
                         }
+                        }
                     }
                 }
                 
                 // Signal end of input after all frames
                 if (currentFrameIndex >= totalFrames && !inputEOS) {
-                    val inputBufferIndex = encoder.dequeueInputBuffer(10_000)
-                    if (inputBufferIndex >= 0) {
-                        encoder.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
-                        inputEOS = true
-                        Log.d(SLIDESHOW_TAG, "  EOS signaled to encoder")
+                    if (usingSurface && inputSurface != null) {
+                        try {
+                            enc.signalEndOfInputStream()
+                            inputEOS = true
+                            Log.d(SLIDESHOW_TAG, "  EOS signaled to encoder via Surface")
+                        } catch (e: Exception) {
+                            Log.w(SLIDESHOW_TAG, "Failed to signal EOS via surface: ${e.message}")
+                        }
+                    } else {
+                        val inputBufferIndex = enc.dequeueInputBuffer(10_000)
+                        if (inputBufferIndex >= 0) {
+                            enc.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                            inputEOS = true
+                            Log.d(SLIDESHOW_TAG, "  EOS signaled to encoder")
+                        }
                     }
                 }
                 
                 // Get output
-                val outputBufferIndex = encoder.dequeueOutputBuffer(bufferInfo, 10_000)
+                val outputBufferIndex = enc.dequeueOutputBuffer(bufferInfo, 10_000)
                 when {
                     outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        val newFormat = encoder.outputFormat
+                        val newFormat = enc.outputFormat
                         videoTrackIndex = muxer.addTrack(newFormat)
                         muxer.start()
                         muxerStarted = true
                         Log.d(SLIDESHOW_TAG, "  Muxer started")
                     }
                     outputBufferIndex >= 0 -> {
-                        val outputBuffer = encoder.getOutputBuffer(outputBufferIndex)
+                        val outputBuffer = enc.getOutputBuffer(outputBufferIndex)
                         if (outputBuffer != null && bufferInfo.size > 0 && muxerStarted) {
                             outputBuffer.position(bufferInfo.offset)
                             outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
                             muxer.writeSampleData(videoTrackIndex, outputBuffer, bufferInfo)
                         }
                         
-                        encoder.releaseOutputBuffer(outputBufferIndex, false)
+                        enc.releaseOutputBuffer(outputBufferIndex, false)
                         
                         if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                             Log.d(SLIDESHOW_TAG, "  EOS received from encoder")
@@ -472,7 +655,13 @@ class SlideshowGenerator(private val context: Context) {
         val loadOptions = BitmapFactory.Options().apply {
             inSampleSize = sampleSize
         }
-        val sourceBitmap = BitmapFactory.decodeFile(imagePath, loadOptions)
+        var sourceBitmap = BitmapFactory.decodeFile(imagePath, loadOptions)
+        if (sourceBitmap == null) {
+            Log.w(SLIDESHOW_TAG, "Failed to decode image at $imagePath; using placeholder black image")
+            sourceBitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(sourceBitmap)
+            canvas.drawColor(Color.BLACK)
+        }
         
         // Create final bitmap with correct dimensions (letterbox/pillarbox)
         val finalBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
@@ -580,6 +769,83 @@ class SlideshowGenerator(private val context: Context) {
         
         return yuv
     }
+
+    /** Convert NV12 (Y + interleaved UV) to planar YUV (Y + U-plane + V-plane) */
+    private fun convertNV12ToPlanar(nv12: ByteArray, width: Int, height: Int): ByteArray {
+        val frameSize = width * height
+        val chromaSize = frameSize / 4
+        val out = ByteArray(frameSize + chromaSize * 2)
+        // Copy Y
+        System.arraycopy(nv12, 0, out, 0, frameSize)
+        // nv12: interleaved UV starting at frameSize
+        var uvIndex = frameSize
+        val uPlane = ByteArray(chromaSize)
+        val vPlane = ByteArray(chromaSize)
+        var idx = 0
+        while (uvIndex < nv12.size) {
+            uPlane[idx] = nv12[uvIndex++] // U
+            if (uvIndex < nv12.size) vPlane[idx] = nv12[uvIndex++] // V
+            idx++
+        }
+        System.arraycopy(uPlane, 0, out, frameSize, chromaSize)
+        System.arraycopy(vPlane, 0, out, frameSize + chromaSize, chromaSize)
+        return out
+    }
+
+    /** Convert NV12 (Y + interleaved UV) to NV21 (Y + interleaved VU) */
+    private fun convertNV12ToNV21(nv12: ByteArray, width: Int, height: Int): ByteArray {
+        val frameSize = width * height
+        val uvSize = frameSize / 2
+        val out = ByteArray(frameSize + uvSize)
+        // Copy Y plane
+        System.arraycopy(nv12, 0, out, 0, frameSize)
+        // Interleaved UV plane -> convert to VU by swapping every pair
+        var src = frameSize
+        var dst = frameSize
+        while (src + 1 < nv12.size) {
+            val u = nv12[src]
+            val v = nv12[src + 1]
+            out[dst] = v
+            out[dst + 1] = u
+            src += 2
+            dst += 2
+        }
+        return out
+    }
+
+    /**
+     * Select a supported color format for the given mime that supports direct ByteBuffer input.
+     * Prefer semi-planar (NV12) or planar formats for compatibility.
+     */
+    private fun selectSupportedColorFormat(mime: String): Int? {
+        try {
+            val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+            val codecs = codecList.codecInfos
+            for (codecInfo in codecs) {
+                if (!codecInfo.isEncoder) continue
+                val types = codecInfo.supportedTypes
+                if (!types.any { it.equals(mime, ignoreCase = true) }) continue
+                val caps = codecInfo.getCapabilitiesForType(mime)
+                val colorFormats = caps.colorFormats
+                // Prefer these formats in order
+                val preferred = listOf(
+                    MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+                    MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
+                    MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+                )
+                for (pf in preferred) {
+                    if (colorFormats.contains(pf)) return pf
+                }
+                // If none matched, try to return any other format that's not COLOR_FormatSurface
+                colorFormats.forEach { f ->
+                    if (f != MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface) return f
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(SLIDESHOW_TAG, "Failed to get supported color formats: ${e.message}")
+        }
+        return null
+    }
     
     /**
      * Mix audio with video
@@ -625,6 +891,45 @@ class SlideshowGenerator(private val context: Context) {
                 throw IllegalArgumentException("No video track found")
             }
             
+            // If the audio is MP3 (audio/mpeg), delegate to AudioMixer which handles transcoding
+            var isMp3 = false
+            for (i in 0 until audioExtractor.trackCount) {
+                val fmt = audioExtractor.getTrackFormat(i)
+                val m = fmt.getString(MediaFormat.KEY_MIME) ?: ""
+                if (m.startsWith("audio/mpeg")) {
+                    isMp3 = true
+                    break
+                }
+            }
+
+            if (isMp3) {
+                // Use AudioMixer to transcode MP3 -> AAC and mux into MP4
+                val audioMixer = AudioMixer(context)
+                // Map progress from audioMixer (0.0..1.0) directly
+                val success = audioMixer.mixAudio(
+                    videoPath = videoPath,
+                    audioPath = audioPath,
+                    outputPath = outputPath,
+                    volume = 1.0,
+                    audioStartUs = null,
+                    audioEndUs = null,
+                    fadeInMs = 0,
+                    fadeOutMs = 0,
+                    onProgress = { p, _ -> onProgress(p) }
+                )
+
+                if (!success) {
+                    Log.w(SLIDESHOW_TAG, "Audio mixing via AudioMixer failed; falling back to original video without audio")
+                    try {
+                        File(videoPath).copyTo(File(outputPath), overwrite = true)
+                    } catch (e: Exception) {
+                        Log.w(SLIDESHOW_TAG, "Failed to fallback copy video: ${e.message}")
+                    }
+                }
+
+                return
+            }
+
             // Create muxer
             muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             
@@ -642,6 +947,7 @@ class SlideshowGenerator(private val context: Context) {
             }
             
             muxer.start()
+            var muxerStarted = true
             
             // Copy video samples
             val buffer = ByteBuffer.allocate(1024 * 1024)
@@ -694,7 +1000,12 @@ class SlideshowGenerator(private val context: Context) {
         } finally {
             videoExtractor.release()
             audioExtractor.release()
-            muxer?.stop()
+            try {
+                // Only stop if started (to avoid IllegalStateException)
+                muxer?.stop()
+            } catch (e: IllegalStateException) {
+                Log.w(SLIDESHOW_TAG, "Muxer stop skipped: ${e.message}")
+            }
             muxer?.release()
         }
     }
