@@ -154,6 +154,7 @@ class SlideshowGenerator(private val context: Context) {
         var encoder: MediaCodec? = null
         var muxer: MediaMuxer? = null
         var videoTrackIndex = -1
+        var muxerStarted = false
         
         try {
             // Configure video encoder
@@ -176,15 +177,17 @@ class SlideshowGenerator(private val context: Context) {
             
             // Try to configure encoder with chosen color format, but robustly fall back
             var configured = false
-            // Create candidate list: prefer discovered formats, then fallbacks
+            // Prefer using a Surface input on Android devices because Surface encoding
+            // avoids error-prone manual YUV byte-buffer conversions that often cause
+            // desaturated / black-and-white output on some devices. Keep ByteBuffer
+            // YUV formats as fallbacks in case Surface isn't supported.
             val candidateFormats = mutableListOf<Int?>()
+            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             candidateFormats.add(supportedColorFormat)
-            // Additional fallbacks: semi-planar, planar, flexible and then Surface
-            // Additional fallbacks
+            // Additional fallbacks: semi-planar, planar, flexible
             candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
             candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar)
             candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            candidateFormats.add(MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
 
             for (candidate in candidateFormats) {
                 var encoderCandidate: MediaCodec? = null
@@ -212,9 +215,8 @@ class SlideshowGenerator(private val context: Context) {
             }
 
             val enc = encoder!!
-            enc.start()
 
-            // Determine whether encoder expects Surface input
+            // Determine whether encoder expects Surface input from the configured format
             var configuredColorFormat: Int? = null
             try {
                 configuredColorFormat = format.getInteger(MediaFormat.KEY_COLOR_FORMAT)
@@ -223,6 +225,7 @@ class SlideshowGenerator(private val context: Context) {
             var inputSurface: Surface? = null
             if (usingSurface) {
                 try {
+                    // Create input surface before starting the encoder as required by many devices
                     inputSurface = enc.createInputSurface()
                     Log.d(SLIDESHOW_TAG, "Encoder uses input Surface; created inputSurface")
                 } catch (e: Exception) {
@@ -230,6 +233,9 @@ class SlideshowGenerator(private val context: Context) {
                     inputSurface = null
                 }
             }
+
+            // Now start the encoder
+            enc.start()
             
             // Create muxer
             muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
@@ -244,7 +250,6 @@ class SlideshowGenerator(private val context: Context) {
             val bufferInfo = MediaCodec.BufferInfo()
             val frameDurationUs = 1_000_000L / fps
             var currentFrameIndex = 0
-            var muxerStarted = false
             var inputEOS = false
             var chosenColorFormat = supportedColorFormat
             
@@ -519,10 +524,31 @@ class SlideshowGenerator(private val context: Context) {
             loadedImages.forEach { it.recycle() }
             
         } finally {
-            encoder?.stop()
-            encoder?.release()
-            muxer?.stop()
-            muxer?.release()
+            try {
+                encoder?.stop()
+            } catch (e: Exception) {
+                Log.w(SLIDESHOW_TAG, "Encoder stop skipped: ${e.message}")
+            }
+
+            try {
+                encoder?.release()
+            } catch (e: Exception) {
+                Log.w(SLIDESHOW_TAG, "Encoder release skipped: ${e.message}")
+            }
+
+            try {
+                if (muxerStarted) {
+                    muxer?.stop()
+                }
+            } catch (e: Exception) {
+                Log.w(SLIDESHOW_TAG, "Muxer stop skipped: ${e.message}")
+            }
+
+            try {
+                muxer?.release()
+            } catch (e: Exception) {
+                Log.w(SLIDESHOW_TAG, "Muxer release skipped: ${e.message}")
+            }
         }
     }
     
