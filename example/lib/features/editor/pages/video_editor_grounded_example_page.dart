@@ -391,9 +391,19 @@ class _VideoEditorGroundedExamplePageState
             ),
           ),
           paintEditor: PaintEditorConfigs(
-            /// Blur and pixelate are not supported.
-            enableModePixelate: false,
-            enableModeBlur: false,
+            tools: [
+              PaintMode.freeStyle,
+              PaintMode.arrow,
+              PaintMode.line,
+              PaintMode.rect,
+              PaintMode.circle,
+              PaintMode.dashLine,
+              PaintMode.polygon,
+              // Blur and pixelate are not supported.
+              // PaintMode.pixelate,
+              // PaintMode.blur,
+              PaintMode.eraser,
+            ],
             style: const PaintEditorStyle(
               background: Color(0xFF000000),
               bottomBarBackground: Color(0xFF161616),
@@ -655,7 +665,6 @@ class _VideoEditorGroundedExamplePageState
             ),
           ),
           stickerEditor: StickerEditorConfigs(
-            enabled: true,
             builder: (setLayer, scrollController) => DemoBuildStickers(
                 categoryColor: const Color(0xFF161616),
                 setLayer: setLayer,

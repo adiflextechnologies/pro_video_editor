@@ -335,9 +335,19 @@ class _VideoEditorBasicExamplePageState
           ),
         ),
         paintEditor: const PaintEditorConfigs(
-          /// Blur and pixelate are not supported.
-          enableModePixelate: false,
-          enableModeBlur: false,
+          tools: [
+            PaintMode.freeStyle,
+            PaintMode.arrow,
+            PaintMode.line,
+            PaintMode.rect,
+            PaintMode.circle,
+            PaintMode.dashLine,
+            PaintMode.polygon,
+            // Blur and pixelate are not supported.
+            // PaintMode.pixelate,
+            // PaintMode.blur,
+            PaintMode.eraser,
+          ],
         ),
         videoEditor: _videoConfigs.copyWith(
           playTimeSmoothingDuration: const Duration(milliseconds: 600),
