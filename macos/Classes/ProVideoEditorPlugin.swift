@@ -3,6 +3,7 @@ import Foundation
 
 public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
     private var eventSink: FlutterEventSink?
+    private var activeRenderTasks: [String: RenderTask] = [:]
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let methodChannel = FlutterMethodChannel(
@@ -98,6 +99,21 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                 return
             }
 
+            guard !id.isEmpty else {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGUMENTS", message: "Missing task id", details: nil))
+                return
+            }
+
+            if activeRenderTasks[id] != nil {
+                result(
+                    FlutterError(
+                        code: "TASK_ALREADY_RUNNING", message: "Task with id \(id) is already running",
+                        details: nil))
+                return
+            }
+
             let inputFormat = args["inputFormat"] as? String ?? "mp4"
             let outputFormat = args["outputFormat"] as? String ?? "mp4"
             let outputPath = args["outputPath"] as? String
@@ -121,7 +137,10 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
 
             postProgress(id: id, progress: 0.0)
 
-            RenderVideo.render(
+            let task = RenderTask(result: result)
+            activeRenderTasks[id] = task
+
+            let handle = RenderVideo.render(
                 inputPath: inputPath,
                 imageData: imageBytes,
                 inputFormat: inputFormat,
@@ -147,16 +166,61 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin {
                     self.postProgress(id: id, progress: progress)
                 },
                 onComplete: { outputData in
-                    self.postProgress(id: id, progress: 1.0)
-                    result(outputData)
+                    DispatchQueue.main.async {
+                        self.postProgress(id: id, progress: 1.0)
+                        if let task = self.activeRenderTasks.removeValue(forKey: id) {
+                            task.sendSuccess(outputData)
+                        } else {
+                            result(outputData)
+                        }
+                    }
                 },
                 onError: { error in
-                    result(
-                        FlutterError(
-                            code: "RENDER_ERROR", message: error.localizedDescription, details: nil)
-                    )
+                    DispatchQueue.main.async {
+                        let task = self.activeRenderTasks.removeValue(forKey: id)
+                        let code = (task?.isCanceled == true) ? "CANCELED" : "RENDER_ERROR"
+                        let flutterError = FlutterError(
+                            code: code,
+                            message: error.localizedDescription,
+                            details: nil
+                        )
+                        if let task = task {
+                            task.sendError(flutterError)
+                        } else {
+                            result(flutterError)
+                        }
+                    }
                 }
             )
+            task.attachHandle(handle)
+
+        case "cancelTask":
+            guard let args = call.arguments as? [String: Any],
+                let id = args["id"] as? String
+            else {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGUMENTS", message: "Missing parameters", details: nil))
+                return
+            }
+
+            guard !id.isEmpty else {
+                result(
+                    FlutterError(
+                        code: "INVALID_ARGUMENTS", message: "Expected non-empty task id",
+                        details: nil))
+                return
+            }
+
+            guard let task = activeRenderTasks[id] else {
+                result(
+                    FlutterError(
+                        code: "TASK_NOT_FOUND", message: "No task found for id \(id)", details: nil))
+                return
+            }
+
+            task.cancel()
+            result(nil)
 
         default:
             result(FlutterMethodNotImplemented)
@@ -184,5 +248,61 @@ extension ProVideoEditorPlugin: FlutterStreamHandler {
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         self.eventSink = nil
         return nil
+    }
+}
+
+private final class RenderTask {
+    let result: FlutterResult
+    private var handle: RenderJobHandle?
+    private let lock = NSLock()
+    private var _isCanceled: Bool
+    private var resultConsumed: Bool
+
+    init(result: @escaping FlutterResult) {
+        self.result = result
+        self._isCanceled = false
+        self.resultConsumed = false
+    }
+
+    var isCanceled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isCanceled
+    }
+
+    func attachHandle(_ handle: RenderJobHandle) {
+        lock.lock()
+        let alreadyCanceled = _isCanceled
+        self.handle = handle
+        lock.unlock()
+        if alreadyCanceled {
+            handle.cancel()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        _isCanceled = true
+        let currentHandle = handle
+        lock.unlock()
+        currentHandle?.cancel()
+    }
+
+    func sendSuccess(_ payload: Any?) {
+        takeResultHandler()?(payload)
+    }
+
+    func sendError(_ error: FlutterError) {
+        takeResultHandler()?(error)
+    }
+
+    private func takeResultHandler() -> FlutterResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        if resultConsumed {
+            return nil
+        }
+        resultConsumed = true
+        return result
     }
 }

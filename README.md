@@ -141,6 +141,7 @@ The ProVideoEditor is a Flutter widget designed for video editing within your ap
 | `Remove-Audio`             | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Overlay Layers`           | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Multiple ColorMatrix 4x5` | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
+| `Cancel export task`       | ✅      | ✅  | ✅     | ❌      | ❌     | 🚫   |
 | `Blur background`          | 🧪      | 🧪  | 🧪     | ❌      | ❌     | 🚫   |
 | `Custom Audio Tracks`      | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
 | `Merge Videos`             | ❌      | ❌  | ❌     | ❌      | ❌     | 🚫   |
@@ -217,6 +218,44 @@ var customData = RenderVideoModel.withQualityPreset(
 );
 ```
 
+#### Cancel an active render
+
+The cancel API is currently implemented only on **Android, iOS, and macOS**.
+On **Windows, Linux, and Web**, `cancel` is not wired up yet, so callers should either:
+
+* gate by platform before calling `cancel`, or
+* be prepared to handle a `PlatformException` / `UnimplementedError`.
+
+When you cancel a render started with `renderVideoToFile`, the returned `Future` completes with a **`RenderCanceledException`**. If your UI is awaiting that future directly (instead of using `unawaited`), make sure to catch this exception so you can reset any loading state cleanly rather than treating it as an error.
+
+```dart
+final renderModel = RenderVideoModel(
+  video: EditorVideo.asset('assets/sample.mp4'),
+);
+
+final outputPath = '${(await getTemporaryDirectory()).path}/video.mp4';
+
+// Start the render. Keep the model.id so you can cancel it later.
+final renderFuture = ProVideoEditor.instance.renderVideoToFile(
+  outputPath,
+  renderModel,
+);
+
+// Option 1: fire-and-forget (example app pattern).
+unawaited(renderFuture);
+
+// Option 2: if you await directly, handle cancellation:
+try {
+  await renderFuture;
+} on RenderCanceledException {
+  // User canceled: reset UI state, do not treat as an error.
+}
+
+// ...from a UI callback (Android/iOS/macOS only)
+if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+  await ProVideoEditor.instance.cancel(renderModel.id);
+}
+```
 
 #### Advanced Example
 ```dart

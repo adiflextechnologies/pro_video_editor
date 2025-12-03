@@ -9,6 +9,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pro_video_editor/pro_video_editor.dart';
+import 'package:pro_video_editor_example/shared/utils/render_cancel_capability.dart';
+import 'package:pro_video_editor_example/shared/widgets/video_renderer_progress.dart';
 
 import '/core/constants/example_filters.dart';
 import '/shared/utils/bytes_formatter.dart';
@@ -48,6 +50,8 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
   String _taskId = DateTime.now().microsecondsSinceEpoch.toString();
 
   late final EditorVideo _video;
+
+  bool get _supportsCancel => canCancelOnCurrentPlatform();
 
   @override
   void initState() {
@@ -250,10 +254,15 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     final now = DateTime.now().millisecondsSinceEpoch;
     String outputPath = '${directory.path}/my_video_$now.mp4';
 
-    await ProVideoEditor.instance.renderVideoToFile(
-      outputPath,
-      value.copyWith(id: _taskId),
-    );
+    try {
+      await ProVideoEditor.instance.renderVideoToFile(
+        outputPath,
+        value.copyWith(id: _taskId),
+      );
+    } on RenderCanceledException {
+      setState(() => _isExporting = false);
+      return;
+    }
 
     final result = File(outputPath).readAsBytesSync();
 
@@ -269,6 +278,23 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
     _isExporting = false;
     _videoBytes = result;
     setState(() {});
+  }
+
+  Future<void> _cancelRender() async {
+    if (!_supportsCancel) return;
+    try {
+      await ProVideoEditor.instance.cancel(_taskId);
+      // Reset the state after canceling.
+      setState(() {
+        _isExporting = false;
+        _videoBytes = null;
+        _generationTime = Duration.zero;
+        _outputMetadata = null;
+      });
+      _taskId = DateTime.now().microsecondsSinceEpoch.toString();
+    } catch (error, stackTrace) {
+      debugPrint('Failed to cancel render: $error\n$stackTrace');
+    }
   }
 
   Future<Uint8List> _captureLayerContent() async {
@@ -413,29 +439,10 @@ class _VideoRendererPageState extends State<VideoRendererPage> {
 
   Widget _buildOptions() {
     if (_isExporting) {
-      return StreamBuilder<ProgressModel>(
-        stream: ProVideoEditor.instance.progressStreamById(_taskId),
-        builder: (context, snapshot) {
-          double progress = snapshot.data?.progress ?? 0;
-
-          return TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: 0, end: progress),
-            duration: const Duration(milliseconds: 300),
-            builder: (context, animatedValue, _) {
-              return Column(
-                spacing: 7,
-                children: [
-                  CircularProgressIndicator(
-                    value: animatedValue,
-                    // ignore: deprecated_member_use
-                    year2023: false,
-                  ),
-                  Text('${(animatedValue * 100).toStringAsFixed(1)} / 100'),
-                ],
-              );
-            },
-          );
-        },
+      return VideoRendererProgressPanel(
+        progressStream: ProVideoEditor.instance.progressStreamById(_taskId),
+        supportsCancel: _supportsCancel,
+        onCancel: _supportsCancel ? _cancelRender : null,
       );
     }
 
