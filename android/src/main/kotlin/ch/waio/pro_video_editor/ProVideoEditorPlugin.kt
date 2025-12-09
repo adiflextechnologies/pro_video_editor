@@ -257,6 +257,13 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                 val height = call.argument<Number>("height")?.toInt() ?: 1080
                 val fps = call.argument<Number>("fps")?.toInt() ?: 30
                 val audioPath = call.argument<String?>("audioPath")
+                
+                // Audio parameters
+                val audioTrimStartMs = call.argument<Number?>("audioTrimStartMs")?.toLong()
+                val audioTrimEndMs = call.argument<Number?>("audioTrimEndMs")?.toLong()
+                val audioVolume = call.argument<Number?>("audioVolume")?.toDouble()
+                val audioFadeInMs = call.argument<Number?>("audioFadeInMs")?.toLong()
+                val audioFadeOutMs = call.argument<Number?>("audioFadeOutMs")?.toLong()
 
                 if (slidesData == null || slidesData.isEmpty() || outputPath == null) {
                     result.error("INVALID_ARGUMENTS", "Missing or invalid arguments", null)
@@ -285,6 +292,11 @@ class ProVideoEditorPlugin : FlutterPlugin, MethodCallHandler {
                         height = height,
                         fps = fps,
                         audioPath = audioPath,
+                        audioTrimStartMs = audioTrimStartMs,
+                        audioTrimEndMs = audioTrimEndMs,
+                        audioVolume = audioVolume,
+                        audioFadeInMs = audioFadeInMs,
+                        audioFadeOutMs = audioFadeOutMs,
                         onProgress = { progress, stage -> postProgress(id, progress, stage) },
                         onComplete = { resultPath ->
                             Handler(Looper.getMainLooper()).post {

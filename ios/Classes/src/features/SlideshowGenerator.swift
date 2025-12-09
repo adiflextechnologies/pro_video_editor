@@ -30,6 +30,11 @@ class SlideshowGenerator {
     ///   - height: Video height (default: 1080)
     ///   - fps: Frames per second (default: 30)
     ///   - audioPath: Optional audio file to add to the slideshow
+    ///   - audioTrimStartMs: Start time in milliseconds to trim audio from
+    ///   - audioTrimEndMs: End time in milliseconds to trim audio to
+    ///   - audioVolume: Volume level (0.0 to 1.0, default 1.0)
+    ///   - audioFadeInMs: Fade in duration in milliseconds
+    ///   - audioFadeOutMs: Fade out duration in milliseconds
     ///   - onProgress: Callback for progress updates (0.0 to 1.0)
     ///   - onComplete: Callback when slideshow generation is complete
     ///   - onError: Callback when an error occurs
@@ -40,6 +45,11 @@ class SlideshowGenerator {
         height: Int = 1080,
         fps: Int = 30,
         audioPath: String?,
+        audioTrimStartMs: Int64? = nil,
+        audioTrimEndMs: Int64? = nil,
+        audioVolume: Double? = nil,
+        audioFadeInMs: Int64? = nil,
+        audioFadeOutMs: Int64? = nil,
         onProgress: @escaping (Double, String?) -> Void,
         onComplete: @escaping (String) -> Void,
         onError: @escaping (Error) -> Void
@@ -53,6 +63,15 @@ class SlideshowGenerator {
         print("\(SLIDESHOW_TAG):   Slides: \(slides.count)")
         print("\(SLIDESHOW_TAG):   Resolution: \(width)x\(height)@\(fps)fps")
         print("\(SLIDESHOW_TAG):   Output: \(outputPath)")
+        if let trimStart = audioTrimStartMs, let trimEnd = audioTrimEndMs {
+            print("\(SLIDESHOW_TAG):   Audio trim: \(trimStart)ms - \(trimEnd)ms")
+        }
+        if let volume = audioVolume {
+            print("\(SLIDESHOW_TAG):   Audio volume: \(volume)")
+        }
+        if let fadeIn = audioFadeInMs, let fadeOut = audioFadeOutMs {
+            print("\(SLIDESHOW_TAG):   Audio fade: in=\(fadeIn)ms, out=\(fadeOut)ms")
+        }
         
         // Calculate total duration
         let totalDurationMs = slides.reduce(0) { $0 + ($1.durationMs + $1.transitionInDurationMs + $1.transitionOutDurationMs) }
@@ -96,6 +115,11 @@ class SlideshowGenerator {
                         audioPath: audioPath,
                         outputPath: outputPath,
                         durationMs: totalDurationMs,
+                        audioTrimStartMs: audioTrimStartMs,
+                        audioTrimEndMs: audioTrimEndMs,
+                        audioVolume: audioVolume,
+                        audioFadeInMs: audioFadeInMs,
+                        audioFadeOutMs: audioFadeOutMs,
                         onProgress: { progress in
                             onProgress(0.7 + (progress * 0.3), "slideshow")
                         }
@@ -543,12 +567,17 @@ class SlideshowGenerator {
         return UIGraphicsGetImageFromCurrentImageContext()
     }
     
-    /// Mix audio with video
+    /// Mix audio with video with optional trim, volume, and fade effects
     private static func mixAudioWithVideo(
         videoPath: String,
         audioPath: String,
         outputPath: String,
         durationMs: Int64,
+        audioTrimStartMs: Int64? = nil,
+        audioTrimEndMs: Int64? = nil,
+        audioVolume: Double? = nil,
+        audioFadeInMs: Int64? = nil,
+        audioFadeOutMs: Int64? = nil,
         onProgress: @escaping (Double) -> Void
     ) async throws {
         let videoURL = URL(fileURLWithPath: videoPath)
@@ -559,6 +588,8 @@ class SlideshowGenerator {
         try? FileManager.default.removeItem(at: outputURL)
         
         let composition = AVMutableComposition()
+        let audioMix = AVMutableAudioMix()
+        var audioMixParams: [AVMutableAudioMixInputParameters] = []
         
         // Add video track (iOS 13 compatible)
         let videoAsset = AVURLAsset(url: videoURL)
@@ -588,14 +619,72 @@ class SlideshowGenerator {
                 preferredTrackID: kCMPersistentTrackID_Invalid
             )
             
-            // Trim audio to video duration
-            let audioDuration = min(videoDuration, audioAsset.duration)
+            // Calculate audio time range based on trim parameters
+            let audioStartTime: CMTime
+            let audioEndTime: CMTime
+            
+            if let trimStartMs = audioTrimStartMs {
+                audioStartTime = CMTime(value: CMTimeValue(trimStartMs), timescale: 1000)
+            } else {
+                audioStartTime = .zero
+            }
+            
+            if let trimEndMs = audioTrimEndMs {
+                audioEndTime = CMTime(value: CMTimeValue(trimEndMs), timescale: 1000)
+            } else {
+                audioEndTime = audioAsset.duration
+            }
+            
+            // Calculate the duration to use (limited by video duration)
+            let trimmedAudioDuration = CMTimeSubtract(audioEndTime, audioStartTime)
+            let audioDuration = CMTimeMinimum(videoDuration, trimmedAudioDuration)
+            
+            print("\(SLIDESHOW_TAG):   Audio trim: \(CMTimeGetSeconds(audioStartTime))s - \(CMTimeGetSeconds(audioEndTime))s")
+            print("\(SLIDESHOW_TAG):   Audio duration after trim: \(CMTimeGetSeconds(audioDuration))s")
+            
             try compositionAudioTrack?.insertTimeRange(
-                CMTimeRange(start: .zero, duration: audioDuration),
+                CMTimeRange(start: audioStartTime, duration: audioDuration),
                 of: audioTrack,
                 at: .zero
             )
+            
+            // Apply volume and fade effects
+            if let track = compositionAudioTrack {
+                let audioParams = AVMutableAudioMixInputParameters(track: track)
+                
+                let volume = Float(audioVolume ?? 1.0)
+                let fadeInDuration = CMTime(value: CMTimeValue(audioFadeInMs ?? 0), timescale: 1000)
+                let fadeOutDuration = CMTime(value: CMTimeValue(audioFadeOutMs ?? 0), timescale: 1000)
+                
+                print("\(SLIDESHOW_TAG):   Volume: \(volume), FadeIn: \(CMTimeGetSeconds(fadeInDuration))s, FadeOut: \(CMTimeGetSeconds(fadeOutDuration))s")
+                
+                // Set up volume ramps for fade effects
+                if CMTimeGetSeconds(fadeInDuration) > 0 {
+                    // Fade in: 0 -> volume
+                    audioParams.setVolumeRamp(fromStartVolume: 0.0, toEndVolume: volume, timeRange: CMTimeRange(start: .zero, duration: fadeInDuration))
+                    
+                    // Maintain volume after fade in until fade out starts
+                    let afterFadeIn = CMTimeAdd(.zero, fadeInDuration)
+                    let beforeFadeOut = CMTimeSubtract(audioDuration, fadeOutDuration)
+                    if CMTimeCompare(afterFadeIn, beforeFadeOut) < 0 {
+                        audioParams.setVolumeRamp(fromStartVolume: volume, toEndVolume: volume, timeRange: CMTimeRange(start: afterFadeIn, duration: CMTimeSubtract(beforeFadeOut, afterFadeIn)))
+                    }
+                } else {
+                    // No fade in, just set volume
+                    audioParams.setVolume(volume, at: .zero)
+                }
+                
+                if CMTimeGetSeconds(fadeOutDuration) > 0 {
+                    // Fade out: volume -> 0
+                    let fadeOutStart = CMTimeSubtract(audioDuration, fadeOutDuration)
+                    audioParams.setVolumeRamp(fromStartVolume: volume, toEndVolume: 0.0, timeRange: CMTimeRange(start: fadeOutStart, duration: fadeOutDuration))
+                }
+                
+                audioMixParams.append(audioParams)
+            }
         }
+        
+        audioMix.inputParameters = audioMixParams
         
         // Export
         guard let exporter = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
@@ -605,6 +694,7 @@ class SlideshowGenerator {
         exporter.outputURL = outputURL
         exporter.outputFileType = .mp4
         exporter.shouldOptimizeForNetworkUse = true
+        exporter.audioMix = audioMix
         
         // Monitor progress
         let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in

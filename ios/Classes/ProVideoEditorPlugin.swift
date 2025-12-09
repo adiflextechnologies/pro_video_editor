@@ -216,6 +216,13 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
       let fps = args["fps"] as? Int ?? 30
       let audioPath = args["audioPath"] as? String
       
+      // Audio parameters
+      let audioTrimStartMs = (args["audioTrimStartMs"] as? NSNumber)?.int64Value
+      let audioTrimEndMs = (args["audioTrimEndMs"] as? NSNumber)?.int64Value
+      let audioVolume = (args["audioVolume"] as? NSNumber)?.doubleValue
+      let audioFadeInMs = (args["audioFadeInMs"] as? NSNumber)?.int64Value
+      let audioFadeOutMs = (args["audioFadeOutMs"] as? NSNumber)?.int64Value
+      
       // Parse slides data
       let slides: [SlideshowGenerator.SlideConfig] = slidesData.compactMap { slideMap in
         guard let imagePath = slideMap["imagePath"] as? String,
@@ -255,6 +262,11 @@ public class ProVideoEditorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler
         height: height,
         fps: fps,
         audioPath: audioPath,
+        audioTrimStartMs: audioTrimStartMs,
+        audioTrimEndMs: audioTrimEndMs,
+        audioVolume: audioVolume,
+        audioFadeInMs: audioFadeInMs,
+        audioFadeOutMs: audioFadeOutMs,
         onProgress: { progress, stage in
           self.postProgress(id: id, progress: progress, stage: stage)
         },

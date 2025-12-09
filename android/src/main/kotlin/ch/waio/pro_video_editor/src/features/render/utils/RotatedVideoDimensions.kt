@@ -1,6 +1,8 @@
 package ch.waio.pro_video_editor.src.features.render.utils
 
 import android.media.MediaMetadataRetriever
+import android.util.Log
+import ch.waio.pro_video_editor.RENDER_TAG
 import java.io.File
 
 fun getRotatedVideoDimensions(
@@ -20,15 +22,21 @@ fun getRotatedVideoDimensions(
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
                 ?.toIntOrNull() ?: 0
 
-        val normalizedRotation = (rotation + rotationDegrees.toInt()) % 360
+        // Normalize the combined rotation to handle edge cases
+        val combinedRotation = rotation + rotationDegrees.toInt()
+        val normalizedRotation = ((combinedRotation % 360) + 360) % 360
+        
         val (width, height) = if (normalizedRotation == 90 || normalizedRotation == 270) {
             heightRaw to widthRaw
         } else {
             widthRaw to heightRaw
         }
 
+        Log.d(RENDER_TAG, "Video dimensions: raw=${widthRaw}x${heightRaw}, metadata_rotation=$rotation, user_rotation=${rotationDegrees.toInt()}, normalized=$normalizedRotation, final=${width}x${height}")
+        
         Triple(width, height, normalizedRotation)
     } catch (e: Exception) {
+        Log.e(RENDER_TAG, "Failed to get video dimensions: ${e.message}")
         Triple(0, 0, 0)
     } finally {
         retriever.release()

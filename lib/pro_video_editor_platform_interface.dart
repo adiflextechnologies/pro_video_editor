@@ -92,11 +92,11 @@ abstract class ProVideoEditor extends PlatformInterface {
   }
 
   /// Concatenates multiple videos into a single video file.
-  /// 
+  ///
   /// [inputPaths] is a list of video file paths to concatenate.
   /// [outputPath] is the output file path for the concatenated video.
   /// [taskId] is an optional identifier to track progress.
-  /// 
+  ///
   /// Returns a [Future] containing the output file path.
   Future<String> concatenateVideos({
     required List<String> inputPaths,
@@ -107,10 +107,10 @@ abstract class ProVideoEditor extends PlatformInterface {
   }
 
   /// Generates a slideshow video from multiple images with transitions.
-  /// 
+  ///
   /// This is a specialized method for creating slideshows that avoids
   /// concatenation bugs by encoding all images into a single video stream.
-  /// 
+  ///
   /// [slides] is a list of slide configurations with image paths and durations.
   /// [outputPath] is the output file path for the slideshow video.
   /// [width] is the video width (default: 1920).
@@ -118,7 +118,12 @@ abstract class ProVideoEditor extends PlatformInterface {
   /// [fps] is the frames per second (default: 30).
   /// [audioPath] is an optional audio file to add to the slideshow.
   /// [taskId] is an optional identifier to track progress.
-  /// 
+  /// [audioTrimStartMs] is the start time in milliseconds to trim audio from.
+  /// [audioTrimEndMs] is the end time in milliseconds to trim audio to.
+  /// [audioVolume] is the volume level (0.0 to 1.0, default 1.0).
+  /// [audioFadeInMs] is the fade in duration in milliseconds.
+  /// [audioFadeOutMs] is the fade out duration in milliseconds.
+  ///
   /// Returns a [Future] containing the output file path.
   Future<String> generateSlideshow({
     required List<Map<String, dynamic>> slides,
@@ -128,6 +133,11 @@ abstract class ProVideoEditor extends PlatformInterface {
     int fps = 30,
     String? audioPath,
     String? taskId,
+    int? audioTrimStartMs,
+    int? audioTrimEndMs,
+    double? audioVolume,
+    int? audioFadeInMs,
+    int? audioFadeOutMs,
   }) {
     throw UnimplementedError('generateSlideshow() has not been implemented.');
   }

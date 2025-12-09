@@ -116,15 +116,23 @@ class VideoCompositor: NSObject, AVVideoCompositing {
         if shouldApplyOrientationCorrection {
             let correctionAngle: Double
 
-            switch Int(videoRotationDegrees.rounded()) {
-            case 90:
+            // Normalize rotation to handle edge cases (e.g., -90, 270, 450, etc.)
+            let normalizedRotation = Int((videoRotationDegrees.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360).rounded())
+
+            switch normalizedRotation {
+            case 85...95:  // ~90 degrees (allow 5-degree tolerance)
                 correctionAngle = -.pi / 2
-            case -90, 270:
-                correctionAngle = .pi / 2
-            case 180, -180:
+            case 175...185:  // ~180 degrees
                 correctionAngle = .pi
+            case 265...275:  // ~270 degrees (or -90)
+                correctionAngle = .pi / 2
             default:
-                correctionAngle = 0
+                // For non-standard rotations, apply exact correction if significant
+                if abs(videoRotationDegrees) > 1 {
+                    correctionAngle = -videoRotationDegrees * .pi / 180
+                } else {
+                    correctionAngle = 0
+                }
             }
 
             if correctionAngle != 0 {

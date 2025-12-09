@@ -83,7 +83,8 @@ class ProVideoEditorWeb extends ProVideoEditor {
     required String outputPath,
     String? taskId,
   }) {
-    throw UnimplementedError('concatenateVideos() has not been implemented for web.');
+    throw UnimplementedError(
+        'concatenateVideos() has not been implemented for web.');
   }
 
   @override
@@ -95,8 +96,14 @@ class ProVideoEditorWeb extends ProVideoEditor {
     int fps = 30,
     String? audioPath,
     String? taskId,
+    int? audioTrimStartMs,
+    int? audioTrimEndMs,
+    double? audioVolume,
+    int? audioFadeInMs,
+    int? audioFadeOutMs,
   }) {
-    throw UnimplementedError('generateSlideshow() has not been implemented for web.');
+    throw UnimplementedError(
+        'generateSlideshow() has not been implemented for web.');
   }
 
   @override

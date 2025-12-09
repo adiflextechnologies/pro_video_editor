@@ -51,6 +51,11 @@ class SlideshowGenerator(private val context: Context) {
      * @param height Video height (default: 1080)
      * @param fps Frames per second (default: 30)
      * @param audioPath Optional audio file to add to the slideshow
+     * @param audioTrimStartMs Start time in milliseconds to trim audio from
+     * @param audioTrimEndMs End time in milliseconds to trim audio to
+     * @param audioVolume Volume level (0.0 to 1.0, default 1.0)
+     * @param audioFadeInMs Fade in duration in milliseconds
+     * @param audioFadeOutMs Fade out duration in milliseconds
      * @param onProgress Callback for progress updates (0.0 to 1.0)
      * @param onComplete Callback when slideshow generation is complete
      * @param onError Callback when an error occurs
@@ -62,6 +67,11 @@ class SlideshowGenerator(private val context: Context) {
         height: Int = 1080,
         fps: Int = 30,
         audioPath: String? = null,
+        audioTrimStartMs: Long? = null,
+        audioTrimEndMs: Long? = null,
+        audioVolume: Double? = null,
+        audioFadeInMs: Long? = null,
+        audioFadeOutMs: Long? = null,
         onProgress: (Double, String?) -> Unit,
         onComplete: (String) -> Unit,
         onError: (Throwable) -> Unit
@@ -76,6 +86,15 @@ class SlideshowGenerator(private val context: Context) {
             Log.d(SLIDESHOW_TAG, "  Slides: ${slides.size}")
             Log.d(SLIDESHOW_TAG, "  Resolution: ${width}x${height}@${fps}fps")
             Log.d(SLIDESHOW_TAG, "  Output: $outputPath")
+            if (audioTrimStartMs != null && audioTrimEndMs != null) {
+                Log.d(SLIDESHOW_TAG, "  Audio trim: ${audioTrimStartMs}ms - ${audioTrimEndMs}ms")
+            }
+            if (audioVolume != null) {
+                Log.d(SLIDESHOW_TAG, "  Audio volume: $audioVolume")
+            }
+            if (audioFadeInMs != null && audioFadeOutMs != null) {
+                Log.d(SLIDESHOW_TAG, "  Audio fade: in=${audioFadeInMs}ms, out=${audioFadeOutMs}ms")
+            }
             
             // Calculate total duration (display duration + transitions for each slide)
             val totalDurationMs = slides.sumOf { it.durationMs + it.transitionInDurationMs + it.transitionOutDurationMs }
@@ -114,6 +133,11 @@ class SlideshowGenerator(private val context: Context) {
                     audioPath = audioPath,
                     outputPath = outputPath,
                     durationMs = totalDurationMs,
+                    audioTrimStartMs = audioTrimStartMs,
+                    audioTrimEndMs = audioTrimEndMs,
+                    audioVolume = audioVolume,
+                    audioFadeInMs = audioFadeInMs,
+                    audioFadeOutMs = audioFadeOutMs,
                     onProgress = { progress ->
                         onProgress(0.7 + (progress * 0.3), "slideshow")
                     }
@@ -874,15 +898,29 @@ class SlideshowGenerator(private val context: Context) {
     }
     
     /**
-     * Mix audio with video
+     * Mix audio with video with optional trim, volume, and fade effects
      */
     private fun mixAudioWithVideo(
         videoPath: String,
         audioPath: String,
         outputPath: String,
         durationMs: Long,
+        audioTrimStartMs: Long? = null,
+        audioTrimEndMs: Long? = null,
+        audioVolume: Double? = null,
+        audioFadeInMs: Long? = null,
+        audioFadeOutMs: Long? = null,
         onProgress: (Double) -> Unit
     ) {
+        val volume = audioVolume ?: 1.0
+        val fadeInMs = audioFadeInMs ?: 0
+        val fadeOutMs = audioFadeOutMs ?: 0
+        // Convert trim times from ms to microseconds
+        val audioStartUs = audioTrimStartMs?.let { it * 1000 }
+        val audioEndUs = audioTrimEndMs?.let { it * 1000 }
+        
+        Log.d(SLIDESHOW_TAG, "  Audio params: trim=${audioTrimStartMs}ms-${audioTrimEndMs}ms, vol=$volume, fadeIn=${fadeInMs}ms, fadeOut=${fadeOutMs}ms")
+        
         val videoExtractor = MediaExtractor()
         val audioExtractor = MediaExtractor()
         var muxer: MediaMuxer? = null
@@ -917,30 +955,38 @@ class SlideshowGenerator(private val context: Context) {
                 throw IllegalArgumentException("No video track found")
             }
             
-            // If the audio is MP3 (audio/mpeg), delegate to AudioMixer which handles transcoding
-            var isMp3 = false
+            // Check if we need to use AudioMixer for proper audio handling
+            // AudioMixer handles audio trim, volume, fade, and transcoding for MP3
+            var needsAudioMixer = false
             for (i in 0 until audioExtractor.trackCount) {
                 val fmt = audioExtractor.getTrackFormat(i)
                 val m = fmt.getString(MediaFormat.KEY_MIME) ?: ""
                 if (m.startsWith("audio/mpeg")) {
-                    isMp3 = true
+                    needsAudioMixer = true
                     break
                 }
             }
+            
+            // Also use AudioMixer if we have trim, volume, or fade parameters
+            if (audioTrimStartMs != null || audioTrimEndMs != null || 
+                (audioVolume != null && audioVolume != 1.0) ||
+                (audioFadeInMs != null && audioFadeInMs > 0) ||
+                (audioFadeOutMs != null && audioFadeOutMs > 0)) {
+                needsAudioMixer = true
+            }
 
-            if (isMp3) {
-                // Use AudioMixer to transcode MP3 -> AAC and mux into MP4
+            if (needsAudioMixer) {
+                // Use AudioMixer which handles transcoding, trim, volume, and fade
                 val audioMixer = AudioMixer(context)
-                // Map progress from audioMixer (0.0..1.0) directly
                 val success = audioMixer.mixAudio(
                     videoPath = videoPath,
                     audioPath = audioPath,
                     outputPath = outputPath,
-                    volume = 1.0,
-                    audioStartUs = null,
-                    audioEndUs = null,
-                    fadeInMs = 0,
-                    fadeOutMs = 0,
+                    volume = volume,
+                    audioStartUs = audioStartUs,
+                    audioEndUs = audioEndUs,
+                    fadeInMs = fadeInMs,
+                    fadeOutMs = fadeOutMs,
                     onProgress = { p, _ -> onProgress(p) }
                 )
 
@@ -956,7 +1002,7 @@ class SlideshowGenerator(private val context: Context) {
                 return
             }
 
-            // Create muxer
+            // Simple muxing without audio effects (only for AAC audio with no parameters)
             muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             
             // Add video track

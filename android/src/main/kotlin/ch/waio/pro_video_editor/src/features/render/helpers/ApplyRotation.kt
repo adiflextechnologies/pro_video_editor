@@ -8,10 +8,13 @@ import androidx.media3.effect.ScaleAndRotateTransformation
 
 @UnstableApi
 fun applyRotation(videoEffects: MutableList<Effect>, rotationDegrees: Float) {
-    if (rotationDegrees % 360f == 0f) return;
+    // Normalize rotation to handle edge cases (e.g., 450 -> 90, -90 -> 270)
+    val normalizedRotation = ((rotationDegrees % 360f) + 360f) % 360f
+    
+    if (normalizedRotation == 0f) return;
 
-    Log.d(RENDER_TAG, "Applying rotation: $rotationDegrees degrees")
+    Log.d(RENDER_TAG, "Applying rotation: $rotationDegrees degrees (normalized: $normalizedRotation)")
     videoEffects += ScaleAndRotateTransformation.Builder()
-        .setRotationDegrees(rotationDegrees)
+        .setRotationDegrees(normalizedRotation)
         .build()
 }

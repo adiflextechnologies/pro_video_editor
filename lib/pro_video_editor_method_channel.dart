@@ -94,7 +94,8 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
   @override
   Future<bool> cancelRender(String taskId) async {
     try {
-      final result = await methodChannel.invokeMethod<bool>('cancelRender', {'id': taskId});
+      final result = await methodChannel
+          .invokeMethod<bool>('cancelRender', {'id': taskId});
       return result == true;
     } catch (e) {
       if (kDebugMode) debugPrint('cancelRender failed: $e');
@@ -156,6 +157,11 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
     int fps = 30,
     String? audioPath,
     String? taskId,
+    int? audioTrimStartMs,
+    int? audioTrimEndMs,
+    double? audioVolume,
+    int? audioFadeInMs,
+    int? audioFadeOutMs,
   }) async {
     final result = await methodChannel.invokeMethod<String>(
       'generateSlideshow',
@@ -167,6 +173,11 @@ class MethodChannelProVideoEditor extends ProVideoEditor {
         'height': height,
         'fps': fps,
         'audioPath': audioPath,
+        'audioTrimStartMs': audioTrimStartMs,
+        'audioTrimEndMs': audioTrimEndMs,
+        'audioVolume': audioVolume,
+        'audioFadeInMs': audioFadeInMs,
+        'audioFadeOutMs': audioFadeOutMs,
       },
     );
 

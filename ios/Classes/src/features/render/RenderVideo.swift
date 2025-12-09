@@ -107,6 +107,14 @@ class RenderVideo {
                     config.videoRotationDegrees = videoRotationDegrees
                     config.shouldApplyOrientationCorrection = abs(videoRotationDegrees) > 1.0
                     config.originalNaturalSize = videoTrack.naturalSize
+                    
+                    // Debug logging for rotation handling
+                    print("[\(Tags.render)] Video orientation info:")
+                    print("[\(Tags.render)]   Natural size: \(videoTrack.naturalSize)")
+                    print("[\(Tags.render)]   Corrected size: \(correctedNaturalSize)")
+                    print("[\(Tags.render)]   Rotation degrees: \(videoRotationDegrees)")
+                    print("[\(Tags.render)]   Apply correction: \(config.shouldApplyOrientationCorrection)")
+                    print("[\(Tags.render)]   Preferred transform: \(preferredTransform)")
 
                     let croppedSize = applyCrop(
                         config: &config,
