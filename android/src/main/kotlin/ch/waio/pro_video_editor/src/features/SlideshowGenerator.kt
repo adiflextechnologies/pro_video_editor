@@ -681,7 +681,7 @@ class SlideshowGenerator(private val context: Context) {
     }
     
     /**
-     * Load and scale an image to fit the video dimensions
+     * Load and scale an image to fill the video dimensions (cover mode - crops to fill, no black bars)
      */
     private fun loadAndScaleImage(imagePath: String, targetWidth: Int, targetHeight: Int): Bitmap {
         // Load image
@@ -698,7 +698,8 @@ class SlideshowGenerator(private val context: Context) {
         if (srcWidth > targetWidth || srcHeight > targetHeight) {
             val widthRatio = srcWidth / targetWidth
             val heightRatio = srcHeight / targetHeight
-            sampleSize = max(widthRatio, heightRatio)
+            // Use the smaller ratio for cover mode (we want to scale up more)
+            sampleSize = kotlin.math.min(widthRatio, heightRatio).coerceAtLeast(1)
         }
         
         // Load scaled image
@@ -713,32 +714,33 @@ class SlideshowGenerator(private val context: Context) {
             canvas.drawColor(Color.BLACK)
         }
         
-        // Create final bitmap with correct dimensions (letterbox/pillarbox)
+        // Create final bitmap with correct dimensions (cover mode - fill entire frame, crop excess)
         val finalBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(finalBitmap)
         
-        // Fill with black background
+        // Fill with black background (fallback, should be covered by image)
         canvas.drawColor(Color.BLACK)
         
-        // Calculate scaling to fit image within video dimensions
+        // Calculate scaling to FILL video dimensions (cover mode)
+        // This ensures the image fills the entire frame, cropping if necessary
         val srcRatio = sourceBitmap.width.toFloat() / sourceBitmap.height
         val targetRatio = targetWidth.toFloat() / targetHeight
         
         val matrix = Matrix()
         if (srcRatio > targetRatio) {
-            // Image is wider - fit to width
-            val scale = targetWidth.toFloat() / sourceBitmap.width
-            val scaledHeight = sourceBitmap.height * scale
-            val offsetY = (targetHeight - scaledHeight) / 2
-            matrix.postScale(scale, scale)
-            matrix.postTranslate(0f, offsetY)
-        } else {
-            // Image is taller - fit to height
+            // Image is wider than target - fit to height, crop sides
             val scale = targetHeight.toFloat() / sourceBitmap.height
             val scaledWidth = sourceBitmap.width * scale
-            val offsetX = (targetWidth - scaledWidth) / 2
+            val offsetX = (targetWidth - scaledWidth) / 2 // Center horizontally (negative = crop)
             matrix.postScale(scale, scale)
             matrix.postTranslate(offsetX, 0f)
+        } else {
+            // Image is taller than target - fit to width, crop top/bottom
+            val scale = targetWidth.toFloat() / sourceBitmap.width
+            val scaledHeight = sourceBitmap.height * scale
+            val offsetY = (targetHeight - scaledHeight) / 2 // Center vertically (negative = crop)
+            matrix.postScale(scale, scale)
+            matrix.postTranslate(0f, offsetY)
         }
         
         canvas.drawBitmap(sourceBitmap, matrix, Paint(Paint.FILTER_BITMAP_FLAG))

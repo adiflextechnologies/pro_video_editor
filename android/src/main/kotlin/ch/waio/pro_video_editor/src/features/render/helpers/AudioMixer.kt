@@ -67,6 +67,28 @@ class AudioMixer(private val context: Context) {
             videoExtractor.selectTrack(videoTrackIndex)
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
             
+            // Read rotation from intermediate video - Media3 Transformer outputs video with
+            // pixels physically rotated, so the intermediate file should have rotation=0.
+            // However, we need to read any existing rotation and preserve it.
+            var videoRotation = 0
+            if (videoFormat.containsKey("rotation-degrees")) {
+                videoRotation = videoFormat.getInteger("rotation-degrees")
+                Log.d(RENDER_TAG, "Video rotation from format: $videoRotation degrees")
+            } else {
+                // Also try reading from MediaMetadataRetriever as fallback
+                val retriever = android.media.MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(videoPath)
+                    val rotationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                    videoRotation = rotationStr?.toIntOrNull() ?: 0
+                    Log.d(RENDER_TAG, "Video rotation from metadata retriever: $videoRotation degrees")
+                } catch (e: Exception) {
+                    Log.w(RENDER_TAG, "Could not read rotation from metadata: ${e.message}")
+                } finally {
+                    retriever.release()
+                }
+            }
+            
             // Ensure video format has required metadata for WhatsApp compatibility
             // WhatsApp requires proper SAR (Sample Aspect Ratio) and frame rate metadata
             if (!videoFormat.containsKey(MediaFormat.KEY_FRAME_RATE)) {
@@ -74,12 +96,14 @@ class AudioMixer(private val context: Context) {
                 videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
             }
             
-            // Ensure rotation is set to 0 if not present (some apps expect this)
-            if (!videoFormat.containsKey("rotation-degrees")) {
-                videoFormat.setInteger("rotation-degrees", 0)
-            }
-            
             val muxerVideoTrack = muxer.addTrack(videoFormat)
+            
+            // Set orientation hint on the muxer to preserve video rotation
+            // This is critical for videos that have rotation metadata
+            if (videoRotation != 0) {
+                Log.d(RENDER_TAG, "Setting muxer orientation hint: $videoRotation degrees")
+                muxer.setOrientationHint(videoRotation)
+            }
             
             // Add audio track. If audio mime is MP3 (audio/mpeg), we must transcode to AAC
             val audioTrackIndex = findTrack(audioExtractor, "audio/")
