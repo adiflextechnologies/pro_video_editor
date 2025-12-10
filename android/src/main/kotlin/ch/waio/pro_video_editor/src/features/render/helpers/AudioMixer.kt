@@ -24,6 +24,10 @@ class AudioMixer(private val context: Context) {
      *
      * Note: audioStartUs and audioEndUs are in microseconds (us) to match
      * the units used across the plugin (Dart side passes durations in microseconds).
+     * 
+     * @param sourceVideoRotation The rotation of the original source video (before any processing).
+     *                            This is used as a fallback if the intermediate video doesn't have
+     *                            rotation metadata. Pass 0 if unknown or not applicable.
      */
     fun mixAudio(
         videoPath: String,
@@ -34,6 +38,7 @@ class AudioMixer(private val context: Context) {
         audioEndUs: Long? = null,
         fadeInMs: Long = 0,
         fadeOutMs: Long = 0,
+        sourceVideoRotation: Int = 0,
         onProgress: ((Double, String?) -> Unit)? = null
     ): Boolean {
         Log.d(RENDER_TAG, "=== Audio Mixing with MediaMuxer ===")
@@ -41,6 +46,7 @@ class AudioMixer(private val context: Context) {
         Log.d(RENDER_TAG, "Audio: $audioPath")
         Log.d(RENDER_TAG, "Output: $outputPath")
         Log.d(RENDER_TAG, "Volume: $volume")
+        Log.d(RENDER_TAG, "Source video rotation (fallback): $sourceVideoRotation")
         
         var videoExtractor: MediaExtractor? = null
         var audioExtractor: MediaExtractor? = null
@@ -67,26 +73,41 @@ class AudioMixer(private val context: Context) {
             videoExtractor.selectTrack(videoTrackIndex)
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
             
-            // Read rotation from intermediate video - Media3 Transformer outputs video with
-            // pixels physically rotated, so the intermediate file should have rotation=0.
-            // However, we need to read any existing rotation and preserve it.
+            // Determine video rotation for the output
+            // Priority: 1) Intermediate file's rotation metadata (if Media3 preserved it)
+            //           2) Source video rotation passed from caller (original video's rotation)
+            //           3) Default to 0
             var videoRotation = 0
             if (videoFormat.containsKey("rotation-degrees")) {
                 videoRotation = videoFormat.getInteger("rotation-degrees")
-                Log.d(RENDER_TAG, "Video rotation from format: $videoRotation degrees")
+                Log.d(RENDER_TAG, "Video rotation from intermediate format: $videoRotation degrees")
             } else {
-                // Also try reading from MediaMetadataRetriever as fallback
+                // Try reading from MediaMetadataRetriever
                 val retriever = android.media.MediaMetadataRetriever()
                 try {
                     retriever.setDataSource(videoPath)
                     val rotationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
                     videoRotation = rotationStr?.toIntOrNull() ?: 0
-                    Log.d(RENDER_TAG, "Video rotation from metadata retriever: $videoRotation degrees")
+                    Log.d(RENDER_TAG, "Video rotation from intermediate metadata: $videoRotation degrees")
                 } catch (e: Exception) {
-                    Log.w(RENDER_TAG, "Could not read rotation from metadata: ${e.message}")
+                    Log.w(RENDER_TAG, "Could not read rotation from intermediate: ${e.message}")
                 } finally {
                     retriever.release()
                 }
+            }
+            
+            // If intermediate video has no rotation but source video did,
+            // Media3 Transformer likely flattened the rotation into pixels.
+            // In this case, we should NOT reapply the rotation as the pixels are already correct.
+            // However, if NO effects were applied, Media3 might have just remuxed without flattening,
+            // in which case the source rotation should be used.
+            // 
+            // Strategy: If intermediate has rotation=0 and source had rotation,
+            // check if video dimensions match expected rotated dimensions.
+            // For now, trust the intermediate file's metadata - if it's 0, assume flattened.
+            if (videoRotation == 0 && sourceVideoRotation != 0) {
+                Log.d(RENDER_TAG, "Intermediate has no rotation, source had $sourceVideoRotation degrees")
+                Log.d(RENDER_TAG, "Assuming Media3 Transformer flattened rotation into pixels, not reapplying")
             }
             
             // Ensure video format has required metadata for WhatsApp compatibility

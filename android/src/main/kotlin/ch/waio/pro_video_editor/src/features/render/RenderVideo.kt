@@ -88,6 +88,20 @@ class RenderVideo(private val context: Context) {
             return
         }
         
+        // Read the original video's rotation metadata BEFORE any processing
+        // This is critical for preserving orientation when custom audio is added
+        var originalVideoRotation = 0
+        try {
+            val retriever = android.media.MediaMetadataRetriever()
+            retriever.setDataSource(inputPath)
+            val rotationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+            originalVideoRotation = rotationStr?.toIntOrNull() ?: 0
+            retriever.release()
+            Log.d(RENDER_TAG, "Original video rotation metadata: $originalVideoRotation degrees")
+        } catch (e: Exception) {
+            Log.w(RENDER_TAG, "Could not read original video rotation: ${e.message}")
+        }
+        
         Log.d(RENDER_TAG, "Starting video render - Input: $inputPath")
         Log.d(RENDER_TAG, "  Output format: $outputFormat")
         Log.d(RENDER_TAG, "  Enable audio: $enableAudio")
@@ -119,12 +133,25 @@ class RenderVideo(private val context: Context) {
         val audioEffects = mutableListOf<AudioProcessor>()
         val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(inputFile))
 
-        val rotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
+        // Calculate user-requested rotation
+        val userRotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
+        
+        // When custom audio is being mixed, we need to ensure the video orientation is
+        // baked into the pixels (not stored as metadata) to prevent rotation issues.
+        // Apply the original video's rotation to flatten it into pixels.
+        val totalRotationDegrees = if (needsCustomAudioMixing && originalVideoRotation != 0 && userRotationDegrees.toInt() % 360 == 0) {
+            // If user hasn't applied rotation (userRotationDegrees == 0 or 360) and custom audio is being used,
+            // apply the original video's rotation to flatten it into pixels
+            Log.d(RENDER_TAG, "Custom audio mixing: applying original rotation $originalVideoRotation° to flatten into pixels")
+            originalVideoRotation.toFloat()
+        } else {
+            userRotationDegrees
+        }
 
-        applyRotation(videoEffects, rotationDegrees)
+        applyRotation(videoEffects, totalRotationDegrees)
         applyFlip(videoEffects, flipX, flipY)
         applyCrop(
-            videoEffects, inputFile, rotationDegrees,
+            videoEffects, inputFile, totalRotationDegrees,
             flipX, flipY, cropWidth, cropHeight, cropX, cropY,
         )
         applyScale(videoEffects, scaleX, scaleY)
@@ -132,7 +159,7 @@ class RenderVideo(private val context: Context) {
         applyColorMatrix(videoEffects, colorMatrixList)
         applyBlur(videoEffects, blur)
         applyImageLayer(
-            videoEffects, inputFile, imageBytes, rotationDegrees,
+            videoEffects, inputFile, imageBytes, totalRotationDegrees,
             cropWidth, cropHeight, scaleX, scaleY
         )
         applyPlaybackSpeed(videoEffects, audioEffects, playbackSpeed)
@@ -210,6 +237,7 @@ class RenderVideo(private val context: Context) {
                                         audioEndUs = customAudioEndTime,
                                         fadeInMs = customAudioFadeInDuration,
                                         fadeOutMs = customAudioFadeOutDuration,
+                                        sourceVideoRotation = originalVideoRotation,
                                         onProgress = { audioProgress, _ ->
                                             // Map audio mixing progress (0.0-1.0) to overall 70-100%
                                             val overallProgress = 0.7 + (audioProgress * 0.3)
