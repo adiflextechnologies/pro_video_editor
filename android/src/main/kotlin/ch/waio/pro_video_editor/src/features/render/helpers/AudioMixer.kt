@@ -119,12 +119,12 @@ class AudioMixer(private val context: Context) {
             
             val muxerVideoTrack = muxer.addTrack(videoFormat)
             
-            // Set orientation hint on the muxer to preserve video rotation
-            // This is critical for videos that have rotation metadata
-            if (videoRotation != 0) {
-                Log.d(RENDER_TAG, "Setting muxer orientation hint: $videoRotation degrees")
-                muxer.setOrientationHint(videoRotation)
-            }
+            // CRITICAL FIX: Always explicitly set orientation hint on the muxer
+            // Even if videoRotation is 0, we must set it to prevent any residual rotation metadata
+            // from being preserved. This is especially important for concatenated videos where
+            // rotation was flattened into pixels but metadata might still exist.
+            Log.d(RENDER_TAG, "Setting muxer orientation hint: $videoRotation degrees (explicitly set even if 0)")
+            muxer.setOrientationHint(videoRotation)
             
             // Add audio track. If audio mime is MP3 (audio/mpeg), we must transcode to AAC
             val audioTrackIndex = findTrack(audioExtractor, "audio/")
