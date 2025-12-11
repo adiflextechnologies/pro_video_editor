@@ -201,6 +201,24 @@ class ConcatenateVideos(private val context: Context) {
                     override fun onCompleted(composition: Composition, result: ExportResult) {
                         Log.d(CONCATENATE_TAG, "✅ Concatenation completed successfully")
                         Log.d(CONCATENATE_TAG, "  Output size: ${outputFile.length() / 1024}KB")
+                        
+                        // Verify output file has no rotation metadata (should be 0 since we flattened it)
+                        try {
+                            val verifyMmr = MediaMetadataRetriever()
+                            verifyMmr.setDataSource(outputPath)
+                            val outputRotation = verifyMmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                            val outputWidth = verifyMmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                            val outputHeight = verifyMmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                            verifyMmr.release()
+                            Log.d(CONCATENATE_TAG, "  Output rotation metadata: $outputRotation° (should be 0)")
+                            Log.d(CONCATENATE_TAG, "  Output dimensions: ${outputWidth}x${outputHeight}")
+                            if (outputRotation != 0) {
+                                Log.w(CONCATENATE_TAG, "⚠️ WARNING: Output still has rotation metadata ($outputRotation°), this may cause issues when adding audio")
+                            }
+                        } catch (e: Exception) {
+                            Log.w(CONCATENATE_TAG, "  Could not verify output metadata: ${e.message}")
+                        }
+                        
                         onProgress(1.0, "concat")
                         onComplete(outputPath)
                     }
