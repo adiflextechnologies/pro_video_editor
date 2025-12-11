@@ -124,8 +124,8 @@ class ConcatenateVideos(private val context: Context) {
         val outputFile = File(outputPath)
         
         try {
-            // Create EditedMediaItems for each input video with scale effect
-            // This normalizes all videos to the same dimensions
+            // Create EditedMediaItems for each input video with scale and rotation effects
+            // This normalizes all videos to the same dimensions and flattens rotation metadata
             val editedMediaItems = inputPaths.mapIndexed { index, path ->
                 Log.d(CONCATENATE_TAG, "Creating EditedMediaItem for video $index")
                 
@@ -133,9 +133,30 @@ class ConcatenateVideos(private val context: Context) {
                     .setUri(Uri.fromFile(File(path)))
                     .build()
                 
-                // Apply scaling effect to normalize video dimensions
+                // Read rotation metadata from each video
+                var videoRotation = 0
+                try {
+                    val mmr = MediaMetadataRetriever()
+                    mmr.setDataSource(path)
+                    videoRotation = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                    mmr.release()
+                    if (videoRotation != 0) {
+                        Log.d(CONCATENATE_TAG, "  Video $index has rotation: $videoRotation°")
+                    }
+                } catch (e: Exception) {
+                    Log.w(CONCATENATE_TAG, "  Failed to read rotation for video $index: ${e.message}")
+                }
+                
+                // Apply rotation transformation to flatten rotation metadata into pixels
+                // This ensures all videos have rotation=0 after processing
+                val transformationBuilder = ScaleAndRotateTransformation.Builder()
+                if (videoRotation != 0) {
+                    transformationBuilder.setRotationDegrees(videoRotation.toFloat())
+                    Log.d(CONCATENATE_TAG, "  Applying rotation transformation: $videoRotation° to flatten metadata")
+                }
+                
                 val videoEffects = listOf(
-                    ScaleAndRotateTransformation.Builder().build()
+                    transformationBuilder.build()
                 )
                 
                 val effects = Effects(
