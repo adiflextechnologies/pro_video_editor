@@ -123,6 +123,71 @@ class RenderVideo(private val context: Context) {
         // 1. Render video with Media3 (muted or without original audio)
         // 2. Mix custom audio with FFmpeg
         val needsCustomAudioMixing = customAudioPath != null && customAudioPath.isNotEmpty()
+        
+        // Check if we need ANY video processing (effects, trim, etc.)
+        // If only adding audio with no video changes, we can skip Media3 entirely
+        val hasVideoEffects = (rotateTurns != null && rotateTurns != 0) ||
+                              flipX || flipY ||
+                              (cropWidth != null || cropHeight != null || cropX != null || cropY != null) ||
+                              (scaleX != null || scaleY != null) ||
+                              (colorMatrixList.isNotEmpty()) ||
+                              (blur != null && blur > 0) ||
+                              (imageBytes != null && imageBytes.isNotEmpty()) ||
+                              (playbackSpeed != null && playbackSpeed != 1.0f)
+        
+        val hasTrim = startUs != null || endUs != null
+        
+        // FAST PATH: If only adding audio with no video transformations and no trim,
+        // skip Media3 Transformer entirely and go straight to AudioMixer
+        // This preserves the exact video stream without any re-encoding or rotation issues
+        if (needsCustomAudioMixing && !hasVideoEffects && !hasTrim) {
+            Log.d(RENDER_TAG, "🚀 FAST PATH: Audio-only operation, skipping Media3 Transformer")
+            Log.d(RENDER_TAG, "   Will use AudioMixer directly on input video")
+            
+            val mainHandler = Handler(Looper.getMainLooper())
+            
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    val audioMixer = AudioMixer(context)
+                    val audioMixSuccess = audioMixer.mixAudio(
+                        videoPath = inputPath,
+                        audioPath = customAudioPath,
+                        outputPath = outputFile.absolutePath,
+                        volume = customAudioVolume,
+                        audioStartUs = customAudioStartTime,
+                        audioEndUs = customAudioEndTime,
+                        fadeInMs = customAudioFadeInDuration,
+                        fadeOutMs = customAudioFadeOutDuration,
+                        sourceVideoRotation = originalVideoRotation,
+                        onProgress = { audioProgress, _ ->
+                            mainHandler.post { onProgress(audioProgress, "mix") }
+                        }
+                    )
+                    
+                    mainHandler.post {
+                        if (audioMixSuccess) {
+                            Log.d(RENDER_TAG, "✅ Fast path audio mixing successful")
+                            if (outputPath != null) {
+                                onComplete(null)
+                            } else {
+                                val resultBytes = outputFile.readBytes()
+                                onComplete(resultBytes)
+                            }
+                        } else {
+                            Log.e(RENDER_TAG, "❌ Fast path audio mixing failed")
+                            onError(Exception("Audio mixing failed"))
+                        }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        Log.e(RENDER_TAG, "❌ Fast path error: ${e.message}", e)
+                        onError(e)
+                    }
+                }
+            }
+            return
+        }
+        
         val intermediateFile = if (needsCustomAudioMixing) {
             File(context.cacheDir, "video_intermediate_${System.currentTimeMillis()}.$outputFormat")
         } else {
@@ -134,7 +199,9 @@ class RenderVideo(private val context: Context) {
         val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(inputFile))
 
         // Calculate user-requested rotation
-        val userRotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
+        // Normalize immediately to avoid passing 360 which should be treated as 0
+        val userRotationDegrees = ((4 - (rotateTurns ?: 0)) * 90f % 360f + 360f) % 360f
+        Log.d(RENDER_TAG, "User rotation: rotateTurns=$rotateTurns -> userRotationDegrees=$userRotationDegrees")
         
         // IMPORTANT: When custom audio is being mixed, check if the video already has rotation baked in
         // (i.e., rotation metadata is 0). Combined videos have rotation flattened into pixels during

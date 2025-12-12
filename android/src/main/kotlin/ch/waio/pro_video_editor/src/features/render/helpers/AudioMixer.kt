@@ -125,6 +125,16 @@ class AudioMixer(private val context: Context) {
                 videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
             }
             
+            // CRITICAL: Remove rotation-degrees from the video format before adding to muxer
+            // The format might contain rotation metadata that conflicts with our setOrientationHint call.
+            // We want to control rotation explicitly via setOrientationHint, not via the format.
+            if (videoFormat.containsKey("rotation-degrees")) {
+                Log.d(RENDER_TAG, "Removing rotation-degrees from video format (will use setOrientationHint instead)")
+                // MediaFormat doesn't have a remove method, so we need to set it to 0
+                // This ensures the muxer doesn't pick up any stale rotation from the format
+                videoFormat.setInteger("rotation-degrees", 0)
+            }
+            
             val muxerVideoTrack = muxer.addTrack(videoFormat)
             
             // CRITICAL FIX: Always explicitly set orientation hint on the muxer
