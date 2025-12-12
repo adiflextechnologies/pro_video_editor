@@ -136,14 +136,44 @@ class RenderVideo(private val context: Context) {
         // Calculate user-requested rotation
         val userRotationDegrees = (4 - (rotateTurns ?: 0)) * 90f
         
-        // When custom audio is being mixed, we need to ensure the video orientation is
-        // baked into the pixels (not stored as metadata) to prevent rotation issues.
-        // Apply the original video's rotation to flatten it into pixels.
+        // IMPORTANT: When custom audio is being mixed, check if the video already has rotation baked in
+        // (i.e., rotation metadata is 0). Combined videos have rotation flattened into pixels during
+        // concatenation, so we should NOT reapply the original rotation.
+        // 
+        // Only apply original rotation if:
+        // 1. Custom audio is being used AND
+        // 2. Original video has rotation metadata != 0 AND
+        // 3. User hasn't applied additional rotation (userRotationDegrees is 0 or 360) AND
+        // 4. The intermediate video ALSO has the same rotation (not yet flattened)
         val totalRotationDegrees = if (needsCustomAudioMixing && originalVideoRotation != 0 && userRotationDegrees.toInt() % 360 == 0) {
-            // If user hasn't applied rotation (userRotationDegrees == 0 or 360) and custom audio is being used,
-            // apply the original video's rotation to flatten it into pixels
-            Log.d(RENDER_TAG, "Custom audio mixing: applying original rotation $originalVideoRotation° to flatten into pixels")
-            originalVideoRotation.toFloat()
+            // Check if current video still has rotation metadata
+            // If it's already 0 (e.g., from concatenation), don't reapply
+            try {
+                val currentRetriever = android.media.MediaMetadataRetriever()
+                currentRetriever.setDataSource(inputPath)
+                val currentRotation = currentRetriever.extractMetadata(
+                    android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION
+                )?.toIntOrNull() ?: 0
+                currentRetriever.release()
+                
+                if (currentRotation == 0 && originalVideoRotation != 0) {
+                    // Video already has rotation flattened (e.g., from concatenation)
+                    // Don't reapply rotation
+                    Log.d(RENDER_TAG, "Video already has rotation flattened (current=0°, original=$originalVideoRotation°), NOT reapplying")
+                    0f
+                } else if (currentRotation == originalVideoRotation) {
+                    // Video still has original rotation, flatten it
+                    Log.d(RENDER_TAG, "Custom audio mixing: applying rotation $originalVideoRotation° to flatten into pixels")
+                    originalVideoRotation.toFloat()
+                } else {
+                    // Unexpected state, log and use user rotation
+                    Log.w(RENDER_TAG, "Rotation mismatch: current=$currentRotation°, original=$originalVideoRotation°, using user rotation")
+                    userRotationDegrees
+                }
+            } catch (e: Exception) {
+                Log.w(RENDER_TAG, "Could not verify current rotation, using original: ${e.message}")
+                originalVideoRotation.toFloat()
+            }
         } else {
             userRotationDegrees
         }

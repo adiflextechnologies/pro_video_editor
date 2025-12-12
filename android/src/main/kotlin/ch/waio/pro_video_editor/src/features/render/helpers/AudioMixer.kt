@@ -96,18 +96,21 @@ class AudioMixer(private val context: Context) {
                 }
             }
             
-            // If intermediate video has no rotation but source video did,
-            // Media3 Transformer likely flattened the rotation into pixels.
-            // In this case, we should NOT reapply the rotation as the pixels are already correct.
-            // However, if NO effects were applied, Media3 might have just remuxed without flattening,
-            // in which case the source rotation should be used.
+            // CRITICAL FIX for concatenated videos:
+            // If intermediate video has rotation=0 and source video had rotation,
+            // Media3 Transformer has already flattened the rotation into pixels.
+            // In this case, we MUST set muxer orientation to 0 to prevent re-rotation.
             // 
-            // Strategy: If intermediate has rotation=0 and source had rotation,
-            // check if video dimensions match expected rotated dimensions.
-            // For now, trust the intermediate file's metadata - if it's 0, assume flattened.
+            // For combined videos from concatenation, the rotation is always flattened
+            // to 0 during the concat process, so any non-zero sourceVideoRotation
+            // passed here is historical and should NOT be reapplied.
             if (videoRotation == 0 && sourceVideoRotation != 0) {
-                Log.d(RENDER_TAG, "Intermediate has no rotation, source had $sourceVideoRotation degrees")
-                Log.d(RENDER_TAG, "Assuming Media3 Transformer flattened rotation into pixels, not reapplying")
+                Log.d(RENDER_TAG, "Intermediate has rotation=0°, source had $sourceVideoRotation°")
+                Log.d(RENDER_TAG, "Rotation was flattened into pixels (e.g., from concatenation)")
+                Log.d(RENDER_TAG, "Will explicitly set muxer orientation to 0° to prevent re-rotation")
+                // Explicitly keep videoRotation as 0 - don't use sourceVideoRotation
+            } else if (videoRotation != 0) {
+                Log.d(RENDER_TAG, "Intermediate video has rotation metadata: $videoRotation°")
             }
             
             // Ensure video format has required metadata for WhatsApp compatibility
