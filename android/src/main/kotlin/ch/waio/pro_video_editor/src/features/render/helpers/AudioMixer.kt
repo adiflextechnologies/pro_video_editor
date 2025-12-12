@@ -79,43 +79,44 @@ class AudioMixer(private val context: Context) {
             Log.d(RENDER_TAG, "Video track format - width: $formatWidth, height: $formatHeight")
             
             // Determine video rotation for the output
-            // Priority: 1) Intermediate file's rotation metadata (if Media3 preserved it)
-            //           2) Source video rotation passed from caller (original video's rotation)
-            //           3) Default to 0
-            var videoRotation = 0
+            // IMPORTANT: For concatenated videos, sourceVideoRotation will be 0 because
+            // concatenation flattens rotation into pixels. We should ALWAYS trust the
+            // sourceVideoRotation passed by the caller rather than reading from the file.
+            //
+            // The video file might have rotation metadata that was valid before processing,
+            // but after concatenation or other transformations, the pixels are already
+            // correctly oriented. Reading rotation from the file would cause double-rotation.
+            var videoRotation = sourceVideoRotation
+            
+            // Log what the file says for diagnostics, but don't use it
+            var fileRotation = 0
             if (videoFormat.containsKey("rotation-degrees")) {
-                videoRotation = videoFormat.getInteger("rotation-degrees")
-                Log.d(RENDER_TAG, "Video rotation from intermediate format: $videoRotation degrees")
+                fileRotation = videoFormat.getInteger("rotation-degrees")
+                Log.d(RENDER_TAG, "Video file has rotation-degrees in format: $fileRotation° (will use sourceVideoRotation=$sourceVideoRotation instead)")
             } else {
-                // Try reading from MediaMetadataRetriever
+                // Try reading from MediaMetadataRetriever for diagnostics
                 val retriever = android.media.MediaMetadataRetriever()
                 try {
                     retriever.setDataSource(videoPath)
                     val rotationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                    videoRotation = rotationStr?.toIntOrNull() ?: 0
-                    Log.d(RENDER_TAG, "Video rotation from intermediate metadata: $videoRotation degrees")
+                    fileRotation = rotationStr?.toIntOrNull() ?: 0
+                    Log.d(RENDER_TAG, "Video file has rotation in metadata: $fileRotation° (will use sourceVideoRotation=$sourceVideoRotation instead)")
                 } catch (e: Exception) {
-                    Log.w(RENDER_TAG, "Could not read rotation from intermediate: ${e.message}")
+                    Log.w(RENDER_TAG, "Could not read rotation from file: ${e.message}")
                 } finally {
                     retriever.release()
                 }
             }
             
-            // CRITICAL FIX for concatenated videos:
-            // If intermediate video has rotation=0 and source video had rotation,
-            // Media3 Transformer has already flattened the rotation into pixels.
-            // In this case, we MUST set muxer orientation to 0 to prevent re-rotation.
-            // 
-            // For combined videos from concatenation, the rotation is always flattened
-            // to 0 during the concat process, so any non-zero sourceVideoRotation
-            // passed here is historical and should NOT be reapplied.
-            if (videoRotation == 0 && sourceVideoRotation != 0) {
-                Log.d(RENDER_TAG, "Intermediate has rotation=0°, source had $sourceVideoRotation°")
-                Log.d(RENDER_TAG, "Rotation was flattened into pixels (e.g., from concatenation)")
-                Log.d(RENDER_TAG, "Will explicitly set muxer orientation to 0° to prevent re-rotation")
-                // Explicitly keep videoRotation as 0 - don't use sourceVideoRotation
-            } else if (videoRotation != 0) {
-                Log.d(RENDER_TAG, "Intermediate video has rotation metadata: $videoRotation°")
+            // CRITICAL: If source says rotation=0, trust it completely
+            // This handles concatenated videos where rotation was flattened into pixels
+            if (sourceVideoRotation == 0) {
+                Log.d(RENDER_TAG, "Source rotation is 0° - video pixels are correctly oriented")
+                Log.d(RENDER_TAG, "Will set output rotation to 0° regardless of file metadata")
+                videoRotation = 0
+            } else {
+                Log.d(RENDER_TAG, "Source rotation is $sourceVideoRotation° - will preserve in output")
+                videoRotation = sourceVideoRotation
             }
             
             // Ensure video format has required metadata for WhatsApp compatibility
