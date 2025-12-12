@@ -73,6 +73,11 @@ class AudioMixer(private val context: Context) {
             videoExtractor.selectTrack(videoTrackIndex)
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
             
+            // Log video format details for diagnostics
+            val formatWidth = if (videoFormat.containsKey(MediaFormat.KEY_WIDTH)) videoFormat.getInteger(MediaFormat.KEY_WIDTH) else -1
+            val formatHeight = if (videoFormat.containsKey(MediaFormat.KEY_HEIGHT)) videoFormat.getInteger(MediaFormat.KEY_HEIGHT) else -1
+            Log.d(RENDER_TAG, "Video track format - width: $formatWidth, height: $formatHeight")
+            
             // Determine video rotation for the output
             // Priority: 1) Intermediate file's rotation metadata (if Media3 preserved it)
             //           2) Source video rotation passed from caller (original video's rotation)

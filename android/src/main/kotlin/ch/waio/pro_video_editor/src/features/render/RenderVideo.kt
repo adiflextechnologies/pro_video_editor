@@ -248,6 +248,25 @@ class RenderVideo(private val context: Context) {
                             
                             Log.d(RENDER_TAG, "✅ Intermediate file exists (${intermediateFile.length()} bytes), starting audio mixing on background thread")
                             
+                            // Diagnostic: Log intermediate file's rotation metadata
+                            try {
+                                val diagRetriever = android.media.MediaMetadataRetriever()
+                                diagRetriever.setDataSource(intermediateFile.absolutePath)
+                                val intermediateRotation = diagRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                                val intermediateWidth = diagRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                                val intermediateHeight = diagRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                                diagRetriever.release()
+                                Log.d(RENDER_TAG, "📊 Intermediate file diagnostics:")
+                                Log.d(RENDER_TAG, "   Input rotation was: $originalVideoRotation°")
+                                Log.d(RENDER_TAG, "   Intermediate rotation: $intermediateRotation° (after Media3 processing)")
+                                Log.d(RENDER_TAG, "   Intermediate dimensions: ${intermediateWidth}x${intermediateHeight}")
+                                if (intermediateRotation != 0 && originalVideoRotation == 0) {
+                                    Log.w(RENDER_TAG, "⚠️ Media3 added rotation metadata (${intermediateRotation}°) to a video that had rotation=0!")
+                                }
+                            } catch (e: Exception) {
+                                Log.w(RENDER_TAG, "Could not read intermediate file metadata: ${e.message}")
+                            }
+                            
                             mixingScheduled = true
                             // Ensure UI immediately shows audio mixing started (70%)
                             mainHandler.post {
@@ -280,6 +299,25 @@ class RenderVideo(private val context: Context) {
                                     // Clean up intermediate file after successful mixing
                                     if (audioMixSuccess) {
                                         Log.d(RENDER_TAG, "Audio mixing successful, cleaning up intermediate file")
+                                        
+                                        // Diagnostic: Verify final output file's rotation
+                                        try {
+                                            val finalRetriever = android.media.MediaMetadataRetriever()
+                                            finalRetriever.setDataSource(outputFile.absolutePath)
+                                            val finalRotation = finalRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                                            val finalWidth = finalRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                                            val finalHeight = finalRetriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                                            finalRetriever.release()
+                                            Log.d(RENDER_TAG, "📊 Final output file diagnostics:")
+                                            Log.d(RENDER_TAG, "   Final rotation: $finalRotation° (should match input or be 0)")
+                                            Log.d(RENDER_TAG, "   Final dimensions: ${finalWidth}x${finalHeight}")
+                                            if (finalRotation != 0 && originalVideoRotation == 0) {
+                                                Log.e(RENDER_TAG, "❌ ERROR: Final output has rotation (${finalRotation}°) but input had rotation=0!")
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.w(RENDER_TAG, "Could not read final output metadata: ${e.message}")
+                                        }
+                                        
                                         intermediateFile.delete()
                                     } else {
                                         Log.w(RENDER_TAG, "Audio mixing failed, returning video without custom audio")
