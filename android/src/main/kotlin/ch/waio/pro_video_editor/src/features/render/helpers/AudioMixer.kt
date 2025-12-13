@@ -73,41 +73,50 @@ class AudioMixer(private val context: Context) {
             videoExtractor.selectTrack(videoTrackIndex)
             val videoFormat = videoExtractor.getTrackFormat(videoTrackIndex)
             
+            // Log video format details for diagnostics
+            val formatWidth = if (videoFormat.containsKey(MediaFormat.KEY_WIDTH)) videoFormat.getInteger(MediaFormat.KEY_WIDTH) else -1
+            val formatHeight = if (videoFormat.containsKey(MediaFormat.KEY_HEIGHT)) videoFormat.getInteger(MediaFormat.KEY_HEIGHT) else -1
+            Log.d(RENDER_TAG, "Video track format - width: $formatWidth, height: $formatHeight")
+            
             // Determine video rotation for the output
-            // Priority: 1) Intermediate file's rotation metadata (if Media3 preserved it)
-            //           2) Source video rotation passed from caller (original video's rotation)
-            //           3) Default to 0
-            var videoRotation = 0
+            // IMPORTANT: For concatenated videos, sourceVideoRotation will be 0 because
+            // concatenation flattens rotation into pixels. We should ALWAYS trust the
+            // sourceVideoRotation passed by the caller rather than reading from the file.
+            //
+            // The video file might have rotation metadata that was valid before processing,
+            // but after concatenation or other transformations, the pixels are already
+            // correctly oriented. Reading rotation from the file would cause double-rotation.
+            var videoRotation = sourceVideoRotation
+            
+            // Log what the file says for diagnostics, but don't use it
+            var fileRotation = 0
             if (videoFormat.containsKey("rotation-degrees")) {
-                videoRotation = videoFormat.getInteger("rotation-degrees")
-                Log.d(RENDER_TAG, "Video rotation from intermediate format: $videoRotation degrees")
+                fileRotation = videoFormat.getInteger("rotation-degrees")
+                Log.d(RENDER_TAG, "Video file has rotation-degrees in format: $fileRotation° (will use sourceVideoRotation=$sourceVideoRotation instead)")
             } else {
-                // Try reading from MediaMetadataRetriever
+                // Try reading from MediaMetadataRetriever for diagnostics
                 val retriever = android.media.MediaMetadataRetriever()
                 try {
                     retriever.setDataSource(videoPath)
                     val rotationStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-                    videoRotation = rotationStr?.toIntOrNull() ?: 0
-                    Log.d(RENDER_TAG, "Video rotation from intermediate metadata: $videoRotation degrees")
+                    fileRotation = rotationStr?.toIntOrNull() ?: 0
+                    Log.d(RENDER_TAG, "Video file has rotation in metadata: $fileRotation° (will use sourceVideoRotation=$sourceVideoRotation instead)")
                 } catch (e: Exception) {
-                    Log.w(RENDER_TAG, "Could not read rotation from intermediate: ${e.message}")
+                    Log.w(RENDER_TAG, "Could not read rotation from file: ${e.message}")
                 } finally {
                     retriever.release()
                 }
             }
             
-            // If intermediate video has no rotation but source video did,
-            // Media3 Transformer likely flattened the rotation into pixels.
-            // In this case, we should NOT reapply the rotation as the pixels are already correct.
-            // However, if NO effects were applied, Media3 might have just remuxed without flattening,
-            // in which case the source rotation should be used.
-            // 
-            // Strategy: If intermediate has rotation=0 and source had rotation,
-            // check if video dimensions match expected rotated dimensions.
-            // For now, trust the intermediate file's metadata - if it's 0, assume flattened.
-            if (videoRotation == 0 && sourceVideoRotation != 0) {
-                Log.d(RENDER_TAG, "Intermediate has no rotation, source had $sourceVideoRotation degrees")
-                Log.d(RENDER_TAG, "Assuming Media3 Transformer flattened rotation into pixels, not reapplying")
+            // CRITICAL: If source says rotation=0, trust it completely
+            // This handles concatenated videos where rotation was flattened into pixels
+            if (sourceVideoRotation == 0) {
+                Log.d(RENDER_TAG, "Source rotation is 0° - video pixels are correctly oriented")
+                Log.d(RENDER_TAG, "Will set output rotation to 0° regardless of file metadata")
+                videoRotation = 0
+            } else {
+                Log.d(RENDER_TAG, "Source rotation is $sourceVideoRotation° - will preserve in output")
+                videoRotation = sourceVideoRotation
             }
             
             // Ensure video format has required metadata for WhatsApp compatibility
@@ -115,6 +124,16 @@ class AudioMixer(private val context: Context) {
             if (!videoFormat.containsKey(MediaFormat.KEY_FRAME_RATE)) {
                 Log.d(RENDER_TAG, "Adding default frame rate (30fps) for WhatsApp compatibility")
                 videoFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+            }
+            
+            // CRITICAL: Remove rotation-degrees from the video format before adding to muxer
+            // The format might contain rotation metadata that conflicts with our setOrientationHint call.
+            // We want to control rotation explicitly via setOrientationHint, not via the format.
+            if (videoFormat.containsKey("rotation-degrees")) {
+                Log.d(RENDER_TAG, "Removing rotation-degrees from video format (will use setOrientationHint instead)")
+                // MediaFormat doesn't have a remove method, so we need to set it to 0
+                // This ensures the muxer doesn't pick up any stale rotation from the format
+                videoFormat.setInteger("rotation-degrees", 0)
             }
             
             val muxerVideoTrack = muxer.addTrack(videoFormat)
