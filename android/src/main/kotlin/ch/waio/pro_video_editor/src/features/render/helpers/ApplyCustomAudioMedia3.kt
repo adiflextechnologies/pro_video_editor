@@ -38,8 +38,28 @@ fun createCompositionWithCustomAudio(
     val videoMediaItemBuilder = MediaItem.Builder()
         .setUri(Uri.fromFile(videoFile))
     
+    // Inspect rotation metadata and apply ScaleAndRotateTransformation to flatten rotation into pixels
+    var videoRotation = 0
+    try {
+        val mmr = android.media.MediaMetadataRetriever()
+        mmr.setDataSource(videoPath)
+        videoRotation = mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+        mmr.release()
+        if (videoRotation != 0) {
+            Log.d(RENDER_TAG, "  Video has rotation: ${videoRotation}°; applying rotation transform to flatten metadata")
+        }
+    } catch (e: Exception) {
+        Log.w(RENDER_TAG, "  Failed to read rotation metadata: ${e.message}")
+    }
+
+    // Preserve rotation metadata; do not add a rotation transform.
+    val videoEffects = emptyList<androidx.media3.common.Effect>()
+
+    val effectsForVideo = Effects(/* audioProcessors= */ emptyList(), /* videoEffects= */ videoEffects)
+
     val videoEditedItem = EditedMediaItem.Builder(videoMediaItemBuilder.build())
         .setRemoveAudio(true) // Remove original audio
+        .setEffects(effectsForVideo)
         .build()
     
     // Audio MediaItem
@@ -72,9 +92,10 @@ fun createCompositionWithCustomAudio(
         .setEffects(audioEffects)
         .build()
     
-    // Create a composition with video and audio sequences
-    val videoSequence = EditedMediaItemSequence(listOf(videoEditedItem))
-    val audioSequence = EditedMediaItemSequence(listOf(audioEditedItem))
+    // Create a composition with video and audio sequences (use Builder API)
+    val videoSequence = EditedMediaItemSequence.withAudioAndVideoFrom(listOf(videoEditedItem))
+
+    val audioSequence = EditedMediaItemSequence.withAudioAndVideoFrom(listOf(audioEditedItem))
     
     return Composition.Builder(listOf(videoSequence, audioSequence))
         .setTransmuxAudio(false) // Don't just copy, process audio

@@ -11,10 +11,7 @@ fun applyRotation(videoEffects: MutableList<Effect>, rotationDegrees: Float) {
     // Normalize rotation to handle edge cases (e.g., 450 -> 90, -90 -> 270)
     val normalizedRotation = ((rotationDegrees % 360f) + 360f) % 360f
     
+    // Preserving original rotation metadata — do not add a rotation transform here.
     if (normalizedRotation == 0f) return;
-
-    Log.d(RENDER_TAG, "Applying rotation: $rotationDegrees degrees (normalized: $normalizedRotation)")
-    videoEffects += ScaleAndRotateTransformation.Builder()
-        .setRotationDegrees(normalizedRotation)
-        .build()
+    Log.d(RENDER_TAG, "Preserving rotation metadata: $rotationDegrees degrees (normalized: $normalizedRotation) — no transform added")
 }

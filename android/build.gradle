@@ -14,6 +14,13 @@ buildscript {
     }
 }
 
+// (module dependencies are declared after the android block further down)
+
+// NOTE: dependencies are declared after the `android {}` block below so
+// the Android Gradle plugin and Kotlin plugin are applied before dependency
+// configurations are resolved. Test dependencies were removed from this
+// module to avoid evaluation-time configuration errors in some Gradle setups.
+
 allprojects {
     repositories {
         google()
@@ -21,6 +28,8 @@ allprojects {
         maven { url 'https://jitpack.io' }
     }
 }
+
+// (module dependencies declared after android {} further below)
 
 apply plugin: "com.android.library"
 apply plugin: "kotlin-android"
@@ -36,7 +45,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11
+        jvmTarget = "11"
     }
 
     sourceSets {
@@ -46,24 +55,6 @@ android {
 
     defaultConfig {
         minSdk = 24
-    }
-
-    dependencies {
-        testImplementation("org.jetbrains.kotlin:kotlin-test")
-        testImplementation("org.mockito:mockito-core:5.1.1")
-        
-        // Media3 dependencies
-        def media3_version = "1.8.0"
-        implementation "androidx.media3:media3-common:$media3_version"
-        implementation("androidx.media3:media3-transformer:$media3_version")
-        implementation("androidx.media3:media3-effect:$media3_version")
-        implementation("androidx.media3:media3-muxer:$media3_version")
-        
-        // FFmpeg handled by ffmpeg_kit_flutter_min plugin
-        
-        // Coroutines
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-        implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     }
 
     testOptions {
@@ -77,4 +68,17 @@ android {
             }
         }
     }
+}
+
+// Module dependencies (declared after plugin and android block)
+dependencies {
+    def media3_version = "1.9.0"
+    implementation "androidx.media3:media3-common:$media3_version"
+    implementation "androidx.media3:media3-transformer:$media3_version"
+    implementation "androidx.media3:media3-effect:$media3_version"
+    implementation "androidx.media3:media3-muxer:$media3_version"
+
+    // Coroutines
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
 }
